@@ -8,7 +8,7 @@ Note that in version 1.2.1 I have split the repository on github into two, hope 
 - [MapPiloteGeopackageHelper](https://github.com/kartpiloten/MapPiloteGeopackageHelper)
     The core library with tests.
 - [MapPiloteGeopackageHelperExamples](https://github.com/kartpiloten/MapPiloteGeopackageHelperExamples)
-Example projects that uses the latest published Nuget package.
+Example projects that uses the latest published NuGet package.
 
 ## Quick Start - Modern Fluent API
 
