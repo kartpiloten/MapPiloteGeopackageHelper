@@ -13,13 +13,13 @@
     <RepositoryType>git</RepositoryType>
     <PackageIcon>MPGeoPackageHelper3.png</PackageIcon>
     <PackageTags>geopackage;sqlite;gis;geospatial;netTopologySuite;spatial;ogc;vector;features;geometry;point;polygon;linestring;sweref99;epsg;crs;async;fluent-api</PackageTags>
-    <Version>1.2.2</Version>
+    <Version>1.3.0</Version>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>Fixed ORDER BY clause in ReadFeaturesAsync - now properly supports ASC/DESC sorting</PackageReleaseNotes>
     <PackageRequireLicenseAcceptance>False</PackageRequireLicenseAcceptance>
     <PackageLicenseFile>Licens.txt</PackageLicenseFile>
-    <AssemblyVersion>1.2.2</AssemblyVersion>
-    <FileVersion>1.2.2</FileVersion>
+    <AssemblyVersion>1.3.0</AssemblyVersion>
+    <FileVersion>1.3.0</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>

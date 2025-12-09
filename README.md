@@ -2,7 +2,7 @@
 
 Modern .NET library for creating, reading, and bulk-loading GeoPackage (GPKG) data using SQLite and NetTopologySuite.
 
-**Latest Release: v1.2.2** - Fixed ORDER BY clause in `ReadFeaturesAsync` (ASC/DESC sorting now works correctly)
+**Latest Release: v1.3.1** - Updated to .NET 10
 
 Note that in version 1.2.1 I have split the repository on github into two, hope it simplifies understanding:
 - [MapPiloteGeopackageHelper](https://github.com/kartpiloten/MapPiloteGeopackageHelper)
@@ -127,7 +127,10 @@ CMPGeopackageCreateHelper.CreateGeoPackage("path.gpkg", 4326, true, Console.Writ
 
 ## Version History
 
-### v1.2.2 (Latest)
+### v1.3.1
+- **Updated**: Targeting .NET 10
+
+### v1.2.2 
 - **Fixed**: ORDER BY clause in `ReadFeaturesAsync` now works correctly with both ASC and DESC
 - **Test Coverage**: Added comprehensive ORDER BY tests
 
