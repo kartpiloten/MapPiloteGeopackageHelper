@@ -140,7 +140,7 @@ namespace TestMapPiloteGeoPackageHandler
 
                 var list = new List<FeatureRecord> { badFeature };
 
-                Assert.ThrowsException<ArgumentException>(() =>
+                Assert.Throws<ArgumentException>(() =>
                     CGeopackageAddDataHelper.BulkInsertFeatures(gpkg, "test_layer", list));
             }
             finally

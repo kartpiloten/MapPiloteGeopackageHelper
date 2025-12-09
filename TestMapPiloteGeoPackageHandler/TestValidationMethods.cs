@@ -24,7 +24,7 @@ namespace TestMapPiloteGeoPackageHandler
             var columnInfo = new CGeopackageAddDataHelper.ColumnInfo("test_col", "INTEGER");
 
             // Act & Assert
-            var exception = Assert.ThrowsException<ArgumentException>(() =>
+            var exception = Assert.Throws<ArgumentException>(() =>
                 CGeopackageAddDataHelper.ValidateDataTypeCompatibility(columnInfo, "not_a_number", 5));
 
             Assert.IsTrue(exception.Message.Contains("Data type mismatch at index 5"));
@@ -52,7 +52,7 @@ namespace TestMapPiloteGeoPackageHandler
             var columnInfo = new CGeopackageAddDataHelper.ColumnInfo("real_col", "REAL");
 
             // Act & Assert
-            var exception = Assert.ThrowsException<ArgumentException>(() =>
+            var exception = Assert.Throws<ArgumentException>(() =>
                 CGeopackageAddDataHelper.ValidateDataTypeCompatibility(columnInfo, "invalid_real", 3));
 
             Assert.IsTrue(exception.Message.Contains("Data type mismatch at index 3"));
@@ -106,7 +106,7 @@ namespace TestMapPiloteGeoPackageHandler
             var columnInfo = new CGeopackageAddDataHelper.ColumnInfo("blob_col", "BLOB");
 
             // Act & Assert
-            var exception = Assert.ThrowsException<ArgumentException>(() =>
+            var exception = Assert.Throws<ArgumentException>(() =>
                 CGeopackageAddDataHelper.ValidateDataTypeCompatibility(columnInfo, "any_value", 2));
 
             Assert.IsTrue(exception.Message.Contains("Column 'blob_col' is of type BLOB"));
@@ -168,9 +168,9 @@ namespace TestMapPiloteGeoPackageHandler
             CGeopackageAddDataHelper.ValidateDataTypeCompatibility(intColumn, "456", 0);
 
             // Both should fail for non-numeric values
-            Assert.ThrowsException<ArgumentException>(() =>
+            Assert.Throws<ArgumentException>(() =>
                 CGeopackageAddDataHelper.ValidateDataTypeCompatibility(integerColumn, "not_a_number", 0));
-            Assert.ThrowsException<ArgumentException>(() =>
+            Assert.Throws<ArgumentException>(() =>
                 CGeopackageAddDataHelper.ValidateDataTypeCompatibility(intColumn, "not_a_number", 0));
         }
 
@@ -188,11 +188,11 @@ namespace TestMapPiloteGeoPackageHandler
             CGeopackageAddDataHelper.ValidateDataTypeCompatibility(doubleColumn, "1.23E+10", 0);
 
             // All should fail for non-numeric values
-            Assert.ThrowsException<ArgumentException>(() =>
+            Assert.Throws<ArgumentException>(() =>
                 CGeopackageAddDataHelper.ValidateDataTypeCompatibility(realColumn, "not_a_number", 0));
-            Assert.ThrowsException<ArgumentException>(() =>
+            Assert.Throws<ArgumentException>(() =>
                 CGeopackageAddDataHelper.ValidateDataTypeCompatibility(floatColumn, "not_a_number", 0));
-            Assert.ThrowsException<ArgumentException>(() =>
+            Assert.Throws<ArgumentException>(() =>
                 CGeopackageAddDataHelper.ValidateDataTypeCompatibility(doubleColumn, "not_a_number", 0));
         }
 

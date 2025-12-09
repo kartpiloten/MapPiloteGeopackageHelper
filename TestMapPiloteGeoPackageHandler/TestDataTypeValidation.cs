@@ -128,7 +128,7 @@ namespace TestMapPiloteGeoPackageHandler
             string[] blobData = { "text_value", "blob_value" };
 
             // Act & Assert
-            var exception = Assert.ThrowsException<ArgumentException>(() =>
+            var exception = Assert.Throws<ArgumentException>(() =>
                 CGeopackageAddDataHelper.AddPointToGeoPackage(_blobTestGeoPackagePath, _blobLayerName, point, blobData));
             
             Assert.IsTrue(exception.Message.Contains("Column 'blob_col' is of type BLOB"));
@@ -155,7 +155,7 @@ namespace TestMapPiloteGeoPackageHandler
             string[] invalidIntegerData = { "not_a_number", "45.67", "text", "varchar_test", "89.123", "12.34", "456", "char_test" };
 
             // Act & Assert
-            var exception = Assert.ThrowsException<ArgumentException>(() =>
+            var exception = Assert.Throws<ArgumentException>(() =>
                 CGeopackageAddDataHelper.AddPointToGeoPackage(_testGeoPackagePath, _layerName, point, invalidIntegerData));
             
             Assert.IsTrue(exception.Message.Contains("Data type mismatch at index 0"));
@@ -171,7 +171,7 @@ namespace TestMapPiloteGeoPackageHandler
             string[] invalidRealData = { "123", "not_a_number", "text", "varchar_test", "89.123", "12.34", "456", "char_test" };
 
             // Act & Assert
-            var exception = Assert.ThrowsException<ArgumentException>(() =>
+            var exception = Assert.Throws<ArgumentException>(() =>
                 CGeopackageAddDataHelper.AddPointToGeoPackage(_testGeoPackagePath, _layerName, point, invalidRealData));
             
             Assert.IsTrue(exception.Message.Contains("Data type mismatch at index 1"));
@@ -187,7 +187,7 @@ namespace TestMapPiloteGeoPackageHandler
             string[] invalidFloatData = { "123", "45.67", "text", "varchar_test", "invalid_float", "12.34", "456", "char_test" };
 
             // Act & Assert
-            var exception = Assert.ThrowsException<ArgumentException>(() =>
+            var exception = Assert.Throws<ArgumentException>(() =>
                 CGeopackageAddDataHelper.AddPointToGeoPackage(_testGeoPackagePath, _layerName, point, invalidFloatData));
             
             Assert.IsTrue(exception.Message.Contains("Data type mismatch at index 4"));
@@ -202,7 +202,7 @@ namespace TestMapPiloteGeoPackageHandler
             string[] invalidDoubleData = { "123", "45.67", "text", "varchar_test", "89.123", "invalid_double", "456", "char_test" };
 
             // Act & Assert
-            var exception = Assert.ThrowsException<ArgumentException>(() =>
+            var exception = Assert.Throws<ArgumentException>(() =>
                 CGeopackageAddDataHelper.AddPointToGeoPackage(_testGeoPackagePath, _layerName, point, invalidDoubleData));
             
             Assert.IsTrue(exception.Message.Contains("Data type mismatch at index 5"));
@@ -217,7 +217,7 @@ namespace TestMapPiloteGeoPackageHandler
             string[] invalidIntData = { "123", "45.67", "text", "varchar_test", "89.123", "12.34", "not_an_int", "char_test" };
 
             // Act & Assert
-            var exception = Assert.ThrowsException<ArgumentException>(() =>
+            var exception = Assert.Throws<ArgumentException>(() =>
                 CGeopackageAddDataHelper.AddPointToGeoPackage(_testGeoPackagePath, _layerName, point, invalidIntData));
             
             Assert.IsTrue(exception.Message.Contains("Data type mismatch at index 6"));
@@ -255,7 +255,7 @@ namespace TestMapPiloteGeoPackageHandler
             string[] tooFewData = { "123", "45.67", "text" }; // Only 3 values instead of 8
 
             // Act & Assert
-            var exception = Assert.ThrowsException<ArgumentException>(() =>
+            var exception = Assert.Throws<ArgumentException>(() =>
                 CGeopackageAddDataHelper.AddPointToGeoPackage(_testGeoPackagePath, _layerName, point, tooFewData));
             
             Assert.IsTrue(exception.Message.Contains("Column count mismatch"));

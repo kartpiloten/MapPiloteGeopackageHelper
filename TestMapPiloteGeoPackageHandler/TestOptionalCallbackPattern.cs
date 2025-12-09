@@ -136,7 +136,7 @@ namespace TestMapPiloteGeoPackageHandler
             };
 
             // Act & Assert
-            var exception = Assert.ThrowsException<FileNotFoundException>(() =>
+            var exception = Assert.Throws<FileNotFoundException>(() =>
             {
                 GeopackageLayerCreateHelper.CreateGeopackageLayer(
                     gpkg, 
@@ -445,7 +445,7 @@ namespace TestMapPiloteGeoPackageHandler
             };
 
             // Act & Assert
-            var exception = Assert.ThrowsException<FileNotFoundException>(() =>
+            var exception = Assert.Throws<FileNotFoundException>(() =>
             {
                 GeopackageLayerCreateHelper.CreateGeopackageLayer(
                     nonExistentGpkg, 
@@ -476,7 +476,7 @@ namespace TestMapPiloteGeoPackageHandler
             };
 
             // Act & Assert - File.Exists() returns false for invalid paths, triggering FileNotFoundException
-            var exception = Assert.ThrowsException<FileNotFoundException>(() =>
+            var exception = Assert.Throws<FileNotFoundException>(() =>
             {
                 GeopackageLayerCreateHelper.CreateGeopackageLayer(
                     invalidPath, 
