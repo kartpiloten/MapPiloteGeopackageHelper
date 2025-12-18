@@ -23,82 +23,91 @@
  */
 using Microsoft.Data.Sqlite;
 
-namespace MapPiloteGeopackageHelper
+namespace MapPiloteGeopackageHelper;
+
+/// <summary>
+/// Helper class for creating layers (tables) in GeoPackage files.
+/// </summary>
+public class GeopackageLayerCreateHelper
 {
-    public class GeopackageLayerCreateHelper
+    /// <summary>
+    /// Creates a spatial layer/table in a GeoPackage with custom table structure.
+    /// </summary>
+    /// <param name="geoPackageFilePath">Path where the GeoPackage will be created.</param>
+    /// <param name="layerName">Name of the layer/table to create (must be a valid SQL identifier).</param>
+    /// <param name="tableHeaders">Dictionary of column names and their SQL types.</param>
+    /// <param name="geometryType">Type of geometry (POINT, LINESTRING, POLYGON, GEOMETRY, etc.). Default is "GEOMETRY".</param>
+    /// <param name="srid">Spatial Reference System Identifier. Default is 3006 (SWEREF99 TM).</param>
+    /// <param name="onStatus">Optional callback for status messages.</param>
+    /// <param name="onError">Optional callback for error messages.</param>
+    /// <exception cref="FileNotFoundException">Thrown when the GeoPackage file doesn't exist.</exception>
+    /// <exception cref="ArgumentException">Thrown when layer name or column names are invalid.</exception>
+    public static void CreateGeopackageLayer(
+        string geoPackageFilePath, 
+        string layerName, 
+        Dictionary<string, string> tableHeaders, 
+        string geometryType = "GEOMETRY", 
+        int srid = 3006,
+        Action<string>? onStatus = null,
+        Action<string>? onError = null)
     {
-        /// <summary>
-        /// Creates a spatial layer/table in a GeoPackage with custom table structure
-        /// </summary>
-        /// <param name="geoPackageFilePath">Path where the GeoPackage will be created</param>
-        /// <param name="layerName">Name of the layer/table to create</param>
-        /// <param name="tableHeaders">Dictionary of column names and their SQL types (including spatial column)</param>
-        /// <param name="geometryType">Type of geometry (default: GEOMETRY for flexible type)</param>
-        /// <param name="srid">Spatial Reference System Identifier (default: 3006 for SWEREF99 TM)</param>
-        /// <param name="onStatus">Optional callback for status messages</param>
-        /// <param name="onError">Optional callback for error messages</param>
-        public static void CreateGeopackageLayer(
-            string geoPackageFilePath, 
-            string layerName, 
-            Dictionary<string, string> tableHeaders, 
-            string geometryType = "GEOMETRY", 
-            int srid = 3006,
-            Action<string>? onStatus = null,
-            Action<string>? onError = null)
+        try
         {
-            try
+            // Ensure the GeoPackage file exists
+            if (!File.Exists(geoPackageFilePath))
             {
-                // Ensure the GeoPackage file exists
-                if (!File.Exists(geoPackageFilePath))
-                {
-                    throw new FileNotFoundException($"GeoPackage file not found: {geoPackageFilePath}");
-                }
-
-                // Use defaults for geometry column
-                const string geometryColumn = "geom";
-
-                using (var connection = new SqliteConnection($"Data Source={geoPackageFilePath}"))
-                {
-                    connection.Open();
-
-                    // Build column definitions from tableHeaders
-                    var columnDefinitions = new List<string> { "id INTEGER PRIMARY KEY AUTOINCREMENT" };
-
-                    // Add all columns from tableHeaders
-                    foreach (var header in tableHeaders)
-                    {
-                        columnDefinitions.Add($"{header.Key} {header.Value}");
-                    }
-
-                    // Add geometry column
-                    columnDefinitions.Add($"{geometryColumn} BLOB");
-
-                    // Create the table
-                    string createTable = $@"
-                    CREATE TABLE {layerName} (
-                        {string.Join(", ", columnDefinitions)}
-                    )";
-                    CMPGeopackageUtils.ExecuteCommand(connection, createTable);
-
-                    // Calculate spatial extent for Swedish national grid
-                    var (minX, minY, maxX, maxY) = CMPGeopackageUtils.CalculateSwedishExtent();
-
-                    // Register the table in gpkg_contents
-                    CMPGeopackageUtils.RegisterTableInContents(connection, layerName, geometryColumn, geometryType, srid, minX, minY, maxX, maxY);
-
-                    // Register geometry column in gpkg_geometry_columns
-                    CMPGeopackageUtils.RegisterGeometryColumn(connection, layerName, geometryColumn, geometryType, srid);
-
-                    onStatus?.Invoke($"Successfully created spatial layer '{layerName}' in GeoPackage");
-                }
+                throw new FileNotFoundException($"GeoPackage file not found: {geoPackageFilePath}");
             }
-            catch (Exception ex)
+
+            // Validate all identifiers to prevent SQL injection
+            CMPGeopackageUtils.ValidateIdentifier(layerName, "layer name");
+            CMPGeopackageUtils.ValidateSrid(srid);
+            
+            foreach (string columnName in tableHeaders.Keys)
             {
-                var errorMessage = $"Error creating GeoPackage layer: {ex.Message}";
-                onError?.Invoke(errorMessage);
-                throw;
+                CMPGeopackageUtils.ValidateIdentifier(columnName, "column name");
             }
+
+            // Use defaults for geometry column
+            const string geometryColumn = "geom";
+
+            using SqliteConnection connection = new($"Data Source={geoPackageFilePath}");
+            connection.Open();
+
+            List<string> columnDefinitions = ["id INTEGER PRIMARY KEY AUTOINCREMENT"];
+
+            // Add all columns from tableHeaders
+            foreach (KeyValuePair<string, string> header in tableHeaders)
+            {
+                columnDefinitions.Add($"{header.Key} {header.Value}");
+            }
+
+            // Add geometry column
+            columnDefinitions.Add($"{geometryColumn} BLOB");
+
+            // Create the table
+            string createTable = $@"
+            CREATE TABLE {layerName} (
+                {string.Join(", ", columnDefinitions)}
+            )";
+            CMPGeopackageUtils.ExecuteCommand(connection, createTable);
+
+            // Calculate spatial extent for Swedish national grid
+            (double minX, double minY, double maxX, double maxY) = CMPGeopackageUtils.CalculateSwedishExtent();
+
+            // Register the table in gpkg_contents
+            CMPGeopackageUtils.RegisterTableInContents(connection, layerName, geometryColumn, geometryType, srid, minX, minY, maxX, maxY);
+
+            // Register geometry column in gpkg_geometry_columns
+            CMPGeopackageUtils.RegisterGeometryColumn(connection, layerName, geometryColumn, geometryType, srid);
+
+            onStatus?.Invoke($"Successfully created spatial layer '{layerName}' in GeoPackage");
+        }
+        catch (Exception ex)
+        {
+            string errorMessage = $"Error creating GeoPackage layer: {ex.Message}";
+            onError?.Invoke(errorMessage);
+            throw;
         }
     }
-
 }

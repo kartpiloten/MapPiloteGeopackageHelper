@@ -23,10 +23,38 @@
  */
 using NetTopologySuite.Geometries;
 
-namespace MapPiloteGeopackageHelper
-{
-    // Standard DTO used by apps: attributes by name + optional geometry
-    public sealed record FeatureRecord(
-        Geometry? Geometry,
-        IReadOnlyDictionary<string, string?> Attributes);
-}
+namespace MapPiloteGeopackageHelper;
+
+/// <summary>
+/// Represents a geographic feature with geometry and attributes.
+/// This is the standard data transfer object used throughout the library for reading and writing features.
+/// </summary>
+/// <param name="Geometry">
+/// The geometry of the feature (Point, LineString, Polygon, etc.) or null for features without geometry.
+/// Uses NetTopologySuite geometry types.
+/// </param>
+/// <param name="Attributes">
+/// Dictionary of attribute names to string values. 
+/// Null values indicate NULL in the database.
+/// All values are represented as strings and converted to appropriate types during insert.
+/// </param>
+/// <example>
+/// <code>
+/// // Create a point feature
+/// var feature = new FeatureRecord(
+///     new Point(674188, 6580251),
+///     new Dictionary&lt;string, string?&gt; 
+///     { 
+///         ["name"] = "Stockholm", 
+///         ["population"] = "975000" 
+///     });
+/// 
+/// // Create a feature without geometry
+/// var attributeOnly = new FeatureRecord(
+///     null,
+///     new Dictionary&lt;string, string?&gt; { ["id"] = "123" });
+/// </code>
+/// </example>
+public sealed record FeatureRecord(
+    Geometry? Geometry,
+    IReadOnlyDictionary<string, string?> Attributes);

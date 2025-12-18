@@ -1,17 +1,22 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.13.35818.85
+# Visual Studio Version 18
+VisualStudioVersion = 18.1.11304.174 d18.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MapPiloteGeopackageHelper", "MapPiloteGeopackageHelper\MapPiloteGeopackageHelper.csproj", "{5F97CFBA-D415-43EE-AEB7-140AC50491ED}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TestMapPiloteGeoPackageHandler", "TestMapPiloteGeoPackageHandler\TestMapPiloteGeoPackageHandler.csproj", "{0ABBA333-C424-486A-9B87-3A42BBF6F09D}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{8EC462FD-D22E-90A8-E5CE-7E832BA40C5D}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solutionresources", "Solutionresources", "{8EC462FD-D22E-90A8-E5CE-7E832BA40C5D}"
 	ProjectSection(SolutionItems) = preProject
 		Licens.txt = Licens.txt
 		README.md = README.md
 		SolutionNotesAndTodos.txt = SolutionNotesAndTodos.txt
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = ".github", ".github", "{95178496-DB9E-4BC0-907C-F537C13A2B4E}"
+	ProjectSection(SolutionItems) = preProject
+		copilote-instructions.md = copilote-instructions.md
 	EndProjectSection
 EndProject
 Global

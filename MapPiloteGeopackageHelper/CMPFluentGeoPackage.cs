@@ -27,448 +27,489 @@ using NetTopologySuite.IO;
 using System.Runtime.CompilerServices;
 using System.Globalization;
 
-namespace MapPiloteGeopackageHelper
+namespace MapPiloteGeopackageHelper;
+
+/// <summary>
+/// Modern fluent API for GeoPackage operations.
+/// Implements IDisposable and IAsyncDisposable for proper resource management.
+/// </summary>
+public sealed class GeoPackage : IDisposable, IAsyncDisposable
 {
-    /// <summary>
-    /// Modern fluent API for GeoPackage operations
-    /// </summary>
-    public sealed class GeoPackage : IDisposable, IAsyncDisposable
+    private readonly SqliteConnection _connection;
+    private readonly string _path;
+    private bool _disposed;
+
+    private GeoPackage(string path, SqliteConnection connection)
     {
-        private readonly SqliteConnection _connection;
-        private readonly string _path;
+        _path = path;
+        _connection = connection;
+    }
 
-        private GeoPackage(string path, SqliteConnection connection)
+    /// <summary>
+    /// Opens or creates a GeoPackage file.
+    /// </summary>
+    /// <param name="path">Path to the GeoPackage file.</param>
+    /// <param name="defaultSrid">Default SRID for new GeoPackages. Default is 3006 (SWEREF99 TM).</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <param name="onStatus">Optional callback for status messages.</param>
+    /// <returns>A GeoPackage instance.</returns>
+    public static async Task<GeoPackage> OpenAsync(string path, int defaultSrid = 3006, CancellationToken ct = default, Action<string>? onStatus = null)
+    {
+        CMPGeopackageUtils.ValidateSrid(defaultSrid);
+        
+        bool exists = File.Exists(path);
+        
+        SqliteConnection connection = new($"Data Source={path}");
+        await connection.OpenAsync(ct);
+
+        GeoPackage geoPackage = new(path, connection);
+
+        if (!exists)
         {
-            _path = path;
-            _connection = connection;
+            await geoPackage.InitializeAsync(defaultSrid, ct, onStatus);
         }
 
-        /// <summary>
-        /// Opens or creates a GeoPackage file
-        /// </summary>
-        public static async Task<GeoPackage> OpenAsync(string path, int defaultSrid = 3006, CancellationToken ct = default, Action<string>? onStatus = null)
+        return geoPackage;
+    }
+
+    /// <summary>
+    /// Ensures a layer exists with the given schema, creating it if needed.
+    /// </summary>
+    /// <param name="layerName">Name of the layer (must be a valid SQL identifier).</param>
+    /// <param name="attributeColumns">Dictionary of column names to SQL types.</param>
+    /// <param name="srid">Spatial Reference System Identifier. Default is 3006.</param>
+    /// <param name="geometryType">Geometry type (POINT, LINESTRING, POLYGON, etc.). Default is "POINT".</param>
+    /// <param name="geometryColumn">Name of the geometry column. Default is "geom".</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>A GeoPackageLayer for the specified layer.</returns>
+    public async Task<GeoPackageLayer> EnsureLayerAsync(
+        string layerName,
+        Dictionary<string, string> attributeColumns,
+        int srid = 3006,
+        string geometryType = "POINT",
+        string geometryColumn = "geom",
+        CancellationToken ct = default)
+    {
+        // Validate inputs
+        CMPGeopackageUtils.ValidateIdentifier(layerName, "layer name");
+        CMPGeopackageUtils.ValidateIdentifier(geometryColumn, "geometry column name");
+        CMPGeopackageUtils.ValidateSrid(srid);
+        
+        foreach (string colName in attributeColumns.Keys)
         {
-            var exists = File.Exists(path);
-            
-            var connection = new SqliteConnection($"Data Source={path}");
-            await connection.OpenAsync(ct);
-
-            var geoPackage = new GeoPackage(path, connection);
-
-            if (!exists)
-            {
-                await geoPackage.InitializeAsync(defaultSrid, ct, onStatus);
-            }
-
-            return geoPackage;
+            CMPGeopackageUtils.ValidateIdentifier(colName, "column name");
         }
 
-        /// <summary>
-        /// Ensures a layer exists with the given schema, creating it if needed
-        /// </summary>
-        public async Task<GeoPackageLayer> EnsureLayerAsync(
-            string layerName,
-            Dictionary<string, string> attributeColumns,
-            int srid = 3006,
-            string geometryType = "POINT",
-            string geometryColumn = "geom",
-            CancellationToken ct = default)
+        bool exists = await LayerExistsAsync(layerName, ct);
+        
+        if (!exists)
         {
-            // Check if layer exists
-            var exists = await LayerExistsAsync(layerName, ct);
-            
-            if (!exists)
-            {
-                await CreateLayerAsync(layerName, attributeColumns, srid, geometryType, geometryColumn, ct);
-            }
-
-            return new GeoPackageLayer(this, layerName, geometryColumn);
+            await CreateLayerAsync(layerName, attributeColumns, srid, geometryType, geometryColumn, ct);
         }
 
-        /// <summary>
-        /// Get comprehensive metadata about this GeoPackage
-        /// </summary>
-        public async Task<CMPGeopackageReadDataHelper.GeopackageInfo> GetInfoAsync(CancellationToken ct = default)
+        return new GeoPackageLayer(this, layerName, geometryColumn);
+    }
+
+    /// <summary>
+    /// Get comprehensive metadata about this GeoPackage.
+    /// </summary>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>GeopackageInfo containing layer and SRS information.</returns>
+    public async Task<CMPGeopackageReadDataHelper.GeopackageInfo> GetInfoAsync(CancellationToken ct = default)
+    {
+        return await Task.Run(() => CMPGeopackageReadDataHelper.GetGeopackageInfo(_path), ct);
+    }
+
+    internal SqliteConnection Connection => _connection;
+    internal string Path => _path;
+
+    private async Task InitializeAsync(int srid, CancellationToken ct, Action<string>? onStatus = null)
+    {
+        await Task.Run(() =>
         {
-            // Use existing logic but make async
-            return await Task.Run(() => CMPGeopackageReadDataHelper.GetGeopackageInfo(_path), ct);
-        }
+            CMPGeopackageUtils.CreateGeoPackageMetadataTables(_connection);
+            CMPGeopackageUtils.SetupSpatialReferenceSystem(_connection, srid);
+            onStatus?.Invoke($"Successfully initialized GeoPackage: {_path}");
+        }, ct);
+    }
 
-        internal SqliteConnection Connection => _connection;
-        internal string Path => _path;
+    private async Task<bool> LayerExistsAsync(string layerName, CancellationToken ct)
+    {
+        const string sql = "SELECT COUNT(*) FROM gpkg_contents WHERE table_name = @name";
+        using SqliteCommand cmd = new(sql, _connection);
+        cmd.Parameters.AddWithValue("@name", layerName);
+        
+        long count = (long)(await cmd.ExecuteScalarAsync(ct) ?? 0);
+        return count > 0;
+    }
 
-        private async Task InitializeAsync(int srid, CancellationToken ct, Action<string>? onStatus = null)
+    private async Task CreateLayerAsync(
+        string layerName,
+        Dictionary<string, string> attributeColumns,
+        int srid,
+        string geometryType,
+        string geometryColumn,
+        CancellationToken ct)
+    {
+        await Task.Run(() =>
         {
-            // Use existing creation logic with callback support
-            await Task.Run(() =>
-            {
-                CMPGeopackageUtils.CreateGeoPackageMetadataTables(_connection);
-                CMPGeopackageUtils.SetupSpatialReferenceSystem(_connection, srid);
-                onStatus?.Invoke($"Successfully initialized GeoPackage: {_path}");
-            }, ct);
-        }
+            GeopackageLayerCreateHelper.CreateGeopackageLayer(
+                _path, layerName, attributeColumns, geometryType, srid,
+                onStatus: _ => { },
+                onError: _ => { });
+        }, ct);
+    }
 
-        private async Task<bool> LayerExistsAsync(string layerName, CancellationToken ct)
-        {
-            const string sql = "SELECT COUNT(*) FROM gpkg_contents WHERE table_name = @name";
-            using var cmd = new SqliteCommand(sql, _connection);
-            cmd.Parameters.AddWithValue("@name", layerName);
-            
-            var count = (long)(await cmd.ExecuteScalarAsync(ct) ?? 0);
-            return count > 0;
-        }
-
-        private async Task CreateLayerAsync(
-            string layerName,
-            Dictionary<string, string> attributeColumns,
-            int srid,
-            string geometryType,
-            string geometryColumn,
-            CancellationToken ct)
-        {
-            // Use existing layer creation logic with callback support
-            await Task.Run(() =>
-            {
-                GeopackageLayerCreateHelper.CreateGeopackageLayer(
-                    _path, layerName, attributeColumns, geometryType, srid,
-                    onStatus: _ => { },  // Discard status messages
-                    onError: _ => { });   // Discard error messages (let exceptions bubble up)
-            }, ct);
-        }
-
-        public void Dispose()
+    /// <summary>
+    /// Disposes the GeoPackage and releases the database connection.
+    /// </summary>
+    public void Dispose()
+    {
+        if (!_disposed)
         {
             _connection?.Dispose();
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            if (_connection != null)
-            {
-                await _connection.DisposeAsync();
-            }
+            _disposed = true;
         }
     }
 
     /// <summary>
-    /// Represents a layer in a GeoPackage for fluent operations
+    /// Asynchronously disposes the GeoPackage and releases the database connection.
     /// </summary>
-    public sealed class GeoPackageLayer
+    public async ValueTask DisposeAsync()
     {
-        private readonly GeoPackage _geoPackage;
-        private readonly string _layerName;
-        private readonly string _geometryColumn;
-
-        internal GeoPackageLayer(GeoPackage geoPackage, string layerName, string geometryColumn)
+        if (!_disposed)
         {
-            _geoPackage = geoPackage;
-            _layerName = layerName;
-            _geometryColumn = geometryColumn;
+            if (_connection is not null)
+            {
+                await _connection.DisposeAsync();
+            }
+            _disposed = true;
+        }
+    }
+}
+
+/// <summary>
+/// Represents a layer in a GeoPackage for fluent operations.
+/// </summary>
+public sealed class GeoPackageLayer
+{
+    private readonly GeoPackage _geoPackage;
+    private readonly string _layerName;
+    private readonly string _geometryColumn;
+
+    internal GeoPackageLayer(GeoPackage geoPackage, string layerName, string geometryColumn)
+    {
+        _geoPackage = geoPackage;
+        _layerName = layerName;
+        _geometryColumn = geometryColumn;
+    }
+
+    /// <summary>
+    /// Bulk insert features with progress reporting.
+    /// Uses streaming to avoid loading all features into memory.
+    /// </summary>
+    /// <param name="features">Features to insert.</param>
+    /// <param name="options">Bulk insert options.</param>
+    /// <param name="progress">Optional progress reporter.</param>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task BulkInsertAsync(
+        IEnumerable<FeatureRecord> features,
+        BulkInsertOptions? options = null,
+        IProgress<BulkProgress>? progress = null,
+        CancellationToken ct = default)
+    {
+        options ??= new BulkInsertOptions();
+        options.Validate();
+
+        // Don't call ToList() - process in streaming fashion
+        // For progress, we need to count if progress is requested
+        int total = 0;
+        IEnumerable<FeatureRecord> featureSource = features;
+        
+        if (progress is not null)
+        {
+            // Only materialize if progress is requested
+            List<FeatureRecord> featureList = features.ToList();
+            total = featureList.Count;
+            featureSource = featureList;
         }
 
-        /// <summary>
-        /// Bulk insert features with progress reporting
-        /// </summary>
-        public async Task BulkInsertAsync(
-            IEnumerable<FeatureRecord> features,
-            BulkInsertOptions? options = null,
-            IProgress<BulkProgress>? progress = null,
-            CancellationToken ct = default)
+        int processed = 0;
+
+        List<CGeopackageAddDataHelper.ColumnInfo> columnInfo = await GetColumnInfoAsync(ct);
+        
+        string insertSql = GetInsertSql(options.ConflictPolicy, columnInfo);
+        using SqliteCommand command = new(insertSql, _geoPackage.Connection);
+        
+        foreach (CGeopackageAddDataHelper.ColumnInfo col in columnInfo)
+            command.Parameters.AddWithValue($"@{col.Name}", DBNull.Value);
+        command.Parameters.AddWithValue("@geom", DBNull.Value);
+
+        WKBWriter wkbWriter = new();
+        SqliteTransaction? transaction = null;
+
+        try
         {
-            options ??= new BulkInsertOptions();
-            
-            var featureList = features.ToList();
-            var total = featureList.Count;
-            var processed = 0;
+            transaction = _geoPackage.Connection.BeginTransaction();
+            command.Transaction = transaction;
 
-            // Get column info using existing logic
-            var columnInfo = await GetColumnInfoAsync(ct);
-            
-            var insertSql = GetInsertSql(options.ConflictPolicy);
-            using var command = new SqliteCommand(insertSql, _geoPackage.Connection);
-            
-            // Create parameters
-            foreach (var col in columnInfo)
-                command.Parameters.AddWithValue($"@{col.Name}", DBNull.Value);
-            command.Parameters.AddWithValue("@geom", DBNull.Value);
-
-            var wkbWriter = new WKBWriter();
-            SqliteTransaction? transaction = null;
-
-            try
-            {
-                transaction = _geoPackage.Connection.BeginTransaction();
-                command.Transaction = transaction;
-
-                foreach (var feature in featureList)
-                {
-                    ct.ThrowIfCancellationRequested();
-
-                    // Use existing validation and conversion
-                    await BindFeatureAsync(command, feature, columnInfo, wkbWriter, options.Srid);
-                    await command.ExecuteNonQueryAsync(ct);
-
-                    processed++;
-                    
-                    if (processed % options.BatchSize == 0)
-                    {
-                        transaction.Commit();
-                        transaction.Dispose();
-                        transaction = _geoPackage.Connection.BeginTransaction();
-                        command.Transaction = transaction;
-                        
-                        progress?.Report(new BulkProgress(processed, total));
-                    }
-                }
-
-                transaction.Commit();
-                progress?.Report(new BulkProgress(total, total));
-            }
-            finally
-            {
-                transaction?.Dispose();
-            }
-        }
-
-        /// <summary>
-        /// Read features as async enumerable with options
-        /// </summary>
-        public async IAsyncEnumerable<FeatureRecord> ReadFeaturesAsync(
-            ReadOptions? options = null,
-            [EnumeratorCancellation] CancellationToken ct = default)
-        {
-            options ??= new ReadOptions();
-
-            // Build query with WHERE/LIMIT/OFFSET support
-            var sql = BuildSelectSql(options);
-            using var command = new SqliteCommand(sql, _geoPackage.Connection);
-            using var reader = await command.ExecuteReaderAsync(ct);
-            
-            // Get column info for attribute mapping
-            var attributeColumns = await GetAttributeColumnNamesAsync(ct);
-            var wkbReader = options.IncludeGeometry ? new WKBReader() : null;
-            var geomOrdinal = -1;
-            
-            if (options.IncludeGeometry)
-            {
-                try { geomOrdinal = reader.GetOrdinal(_geometryColumn); } 
-                catch { geomOrdinal = -1; }
-            }
-            
-            while (await reader.ReadAsync(ct))
+            foreach (FeatureRecord feature in featureSource)
             {
                 ct.ThrowIfCancellationRequested();
+
+                BindFeature(command, feature, columnInfo, wkbWriter, options.Srid);
+                await command.ExecuteNonQueryAsync(ct);
+
+                processed++;
                 
-                // Build attributes dictionary
-                var attrs = new Dictionary<string, string?>(StringComparer.Ordinal);
-                foreach (var colName in attributeColumns)
+                if (processed % options.BatchSize == 0)
                 {
-                    try
+                    transaction.Commit();
+                    transaction.Dispose();
+                    transaction = _geoPackage.Connection.BeginTransaction();
+                    command.Transaction = transaction;
+                    
+                    if (progress is not null && total > 0)
                     {
-                        var ord = reader.GetOrdinal(colName);
-                        attrs[colName] = reader.IsDBNull(ord) ? null : 
-                            Convert.ToString(reader.GetValue(ord), CultureInfo.InvariantCulture);
+                        progress.Report(new BulkProgress(processed, total));
                     }
-                    catch { /* column might not exist */ }
                 }
+            }
 
-                // Parse geometry if requested
-                Geometry? geometry = null;
-                if (options.IncludeGeometry && geomOrdinal >= 0 && !reader.IsDBNull(geomOrdinal))
+            transaction.Commit();
+            
+            // Create spatial index if requested
+            if (options.CreateSpatialIndex)
+            {
+                await CreateSpatialIndexAsync(ct);
+            }
+            
+            if (progress is not null)
+            {
+                progress.Report(new BulkProgress(processed, total > 0 ? total : processed));
+            }
+        }
+        catch
+        {
+            transaction?.Rollback();
+            throw;
+        }
+        finally
+        {
+            transaction?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Read features as async enumerable with options.
+    /// </summary>
+    /// <param name="options">Read options for filtering, sorting, and paging.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Async enumerable of features.</returns>
+    public async IAsyncEnumerable<FeatureRecord> ReadFeaturesAsync(
+        ReadOptions? options = null,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        options ??= new ReadOptions();
+        options.Validate();
+
+        string sql = BuildSelectSql(options);
+        using SqliteCommand command = new(sql, _geoPackage.Connection);
+        using SqliteDataReader reader = await command.ExecuteReaderAsync(ct);
+        
+        List<string> attributeColumns = await GetAttributeColumnNamesAsync(ct);
+        WKBReader? wkbReader = options.IncludeGeometry ? new WKBReader() : null;
+        int geomOrdinal = -1;
+        
+        if (options.IncludeGeometry)
+        {
+            try { geomOrdinal = reader.GetOrdinal(_geometryColumn); } 
+            catch (IndexOutOfRangeException) { geomOrdinal = -1; }
+        }
+        
+        while (await reader.ReadAsync(ct))
+        {
+            ct.ThrowIfCancellationRequested();
+            
+            Dictionary<string, string?> attrs = new(StringComparer.Ordinal);
+            foreach (string colName in attributeColumns)
+            {
+                try
                 {
-                    try
-                    {
-                        var gpkgBlob = (byte[])reader.GetValue(geomOrdinal);
-                        var wkb = CMPGeopackageReadDataHelper.StripGpkgHeader(gpkgBlob);
-                        geometry = wkbReader!.Read(wkb);
-                    }
-                    catch { /* ignore geometry parse errors */ }
+                    int ord = reader.GetOrdinal(colName);
+                    attrs[colName] = reader.IsDBNull(ord) ? null : 
+                        Convert.ToString(reader.GetValue(ord), CultureInfo.InvariantCulture);
                 }
-
-                yield return new FeatureRecord(geometry, attrs);
+                catch (IndexOutOfRangeException) 
+                { 
+                    // Column doesn't exist in result set, skip it
+                }
             }
-        }
 
-        /// <summary>
-        /// Delete features matching a condition
-        /// </summary>
-        public async Task<int> DeleteAsync(string? whereClause = null, CancellationToken ct = default)
-        {
-            var sql = string.IsNullOrEmpty(whereClause) 
-                ? $"DELETE FROM {_layerName}"
-                : $"DELETE FROM {_layerName} WHERE {whereClause}";
-                
-            using var command = new SqliteCommand(sql, _geoPackage.Connection);
-            return await command.ExecuteNonQueryAsync(ct);
-        }
-
-        /// <summary>
-        /// Get feature count
-        /// </summary>
-        public async Task<long> CountAsync(string? whereClause = null, CancellationToken ct = default)
-        {
-            var sql = string.IsNullOrEmpty(whereClause)
-                ? $"SELECT COUNT(*) FROM {_layerName}"
-                : $"SELECT COUNT(*) FROM {_layerName} WHERE {whereClause}";
-                
-            using var command = new SqliteCommand(sql, _geoPackage.Connection);
-            return (long)(await command.ExecuteScalarAsync(ct) ?? 0);
-        }
-
-        /// <summary>
-        /// Create spatial index on geometry column (if supported)
-        /// </summary>
-        public async Task CreateSpatialIndexAsync(CancellationToken ct = default)
-        {
-            // SQLite spatial index requires R*Tree extension
-            var sql = $"CREATE INDEX IF NOT EXISTS idx_{_layerName}_{_geometryColumn} ON {_layerName}({_geometryColumn})";
-            using var command = new SqliteCommand(sql, _geoPackage.Connection);
-            await command.ExecuteNonQueryAsync(ct);
-        }
-
-        private string GetInsertSql(ConflictPolicy policy)
-        {
-            var verb = policy switch
+            Geometry? geometry = null;
+            if (options.IncludeGeometry && geomOrdinal >= 0 && !reader.IsDBNull(geomOrdinal))
             {
-                ConflictPolicy.Ignore => "INSERT OR IGNORE",
-                ConflictPolicy.Replace => "INSERT OR REPLACE", 
-                _ => "INSERT"
-            };
-
-            // Get column info synchronously for SQL building
-            var columnInfo = GetColumnInfoSync();
-            var columnNames = columnInfo.Select(c => c.Name).ToList();
-            var columnList = string.Join(", ", columnNames.Concat(new[] { _geometryColumn }));
-            var parameterList = string.Join(", ", columnNames.Select(c => $"@{c}").Concat(new[] { "@geom" }));
-            
-            return $"{verb} INTO {_layerName} ({columnList}) VALUES ({parameterList})";
-        }
-
-        private string BuildSelectSql(ReadOptions options)
-        {
-            var sql = $"SELECT * FROM {_layerName}";
-            
-            if (!string.IsNullOrEmpty(options.WhereClause))
-                sql += $" WHERE {options.WhereClause}";
-            
-            if (!string.IsNullOrEmpty(options.OrderBy))
-                sql += $" ORDER BY {options.OrderBy}";
-                
-            if (options.Limit.HasValue)
-                sql += $" LIMIT {options.Limit}";
-                
-            if (options.Offset.HasValue)
-                sql += $" OFFSET {options.Offset}";
-                
-            return sql;
-        }
-
-        private async Task<List<CGeopackageAddDataHelper.ColumnInfo>> GetColumnInfoAsync(CancellationToken ct)
-        {
-            return await Task.Run(() => GetColumnInfoSync(), ct);
-        }
-
-        private List<CGeopackageAddDataHelper.ColumnInfo> GetColumnInfoSync()
-        {
-            // Use existing synchronous logic
-            var columnInfo = new List<CGeopackageAddDataHelper.ColumnInfo>();
-            
-            string query = $"PRAGMA table_info({_layerName})";
-            using var command = new SqliteCommand(query, _geoPackage.Connection);
-            using var reader = command.ExecuteReader();
-            
-            while (reader.Read())
-            {
-                string columnName = reader.GetString(1);
-                string columnType = reader.GetString(2);
-                
-                if (!columnName.Equals("id", StringComparison.OrdinalIgnoreCase) && 
-                    !columnName.Equals(_geometryColumn, StringComparison.OrdinalIgnoreCase))
+                try
                 {
-                    columnInfo.Add(new CGeopackageAddDataHelper.ColumnInfo(columnName, columnType));
+                    byte[] gpkgBlob = (byte[])reader.GetValue(geomOrdinal);
+                    byte[] wkb = CMPGeopackageReadDataHelper.StripGpkgHeader(gpkgBlob);
+                    geometry = wkbReader!.Read(wkb);
+                }
+                catch (ArgumentException)
+                {
+                    // Invalid geometry data, leave as null
                 }
             }
+
+            yield return new FeatureRecord(geometry, attrs);
+        }
+    }
+
+    /// <summary>
+    /// Delete features matching a condition.
+    /// </summary>
+    /// <param name="whereClause">Optional WHERE clause (without the WHERE keyword). If null, all features are deleted.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Number of deleted features.</returns>
+    public async Task<int> DeleteAsync(string? whereClause = null, CancellationToken ct = default)
+    {
+        // Layer name is already validated when layer is created
+        string sql = string.IsNullOrEmpty(whereClause) 
+            ? $"DELETE FROM {_layerName}"
+            : $"DELETE FROM {_layerName} WHERE {whereClause}";
             
-            return columnInfo;
-        }
+        using SqliteCommand command = new(sql, _geoPackage.Connection);
+        return await command.ExecuteNonQueryAsync(ct);
+    }
 
-        private async Task<List<string>> GetAttributeColumnNamesAsync(CancellationToken ct)
-        {
-            var columnInfo = await GetColumnInfoAsync(ct);
-            return columnInfo.Select(c => c.Name).ToList();
-        }
-
-        private Task BindFeatureAsync(
-            SqliteCommand command, 
-            FeatureRecord feature, 
-            List<CGeopackageAddDataHelper.ColumnInfo> columnInfo, 
-            WKBWriter wkbWriter, 
-            int srid)
-        {
-            // Use existing validation and conversion from CGeopackageAddDataHelper
-            for (int idx = 0; idx < columnInfo.Count; idx++)
-            {
-                var col = columnInfo[idx];
-                feature.Attributes.TryGetValue(col.Name, out var raw);
-                var valForValidation = raw ?? string.Empty;
-                
-                // Use existing validation - no warning callback in fluent API (silent operation)
-                CGeopackageAddDataHelper.ValidateDataTypeCompatibility(col, valForValidation, idx);
-
-                // Use existing conversion logic
-                var converted = ConvertValueToSqliteType(col, valForValidation);
-                command.Parameters[$"@{col.Name}"].Value = converted ?? DBNull.Value;
-            }
-
-            // Handle geometry using existing logic
-            if (feature.Geometry == null)
-            {
-                command.Parameters["@geom"].Value = DBNull.Value;
-            }
-            else
-            {
-                var wkb = wkbWriter.Write(feature.Geometry);
-                var gpkgBlob = CreateGpkgBlob(wkb, srid);
-                command.Parameters["@geom"].Value = gpkgBlob;
-            }
-
-            return Task.CompletedTask;
-        }
-
-        // Copy existing conversion logic from CGeopackageAddDataHelper
-        private static object ConvertValueToSqliteType(CGeopackageAddDataHelper.ColumnInfo columnInfo, string value)
-        {
-            if (string.IsNullOrEmpty(value))
-                return DBNull.Value;
-
-            var columnType = columnInfo.Type.ToUpperInvariant();
+    /// <summary>
+    /// Get feature count.
+    /// </summary>
+    /// <param name="whereClause">Optional WHERE clause (without the WHERE keyword).</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Number of features matching the condition.</returns>
+    public async Task<long> CountAsync(string? whereClause = null, CancellationToken ct = default)
+    {
+        string sql = string.IsNullOrEmpty(whereClause)
+            ? $"SELECT COUNT(*) FROM {_layerName}"
+            : $"SELECT COUNT(*) FROM {_layerName} WHERE {whereClause}";
             
-            return columnType switch
+        using SqliteCommand command = new(sql, _geoPackage.Connection);
+        return (long)(await command.ExecuteScalarAsync(ct) ?? 0);
+    }
+
+    /// <summary>
+    /// Create an index on the geometry column.
+    /// Note: This creates a standard B-tree index, not a true spatial index (R-tree).
+    /// For R-tree spatial indexing, use the GeoPackage extensions.
+    /// </summary>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task CreateSpatialIndexAsync(CancellationToken ct = default)
+    {
+        string sql = $"CREATE INDEX IF NOT EXISTS idx_{_layerName}_{_geometryColumn} ON {_layerName}({_geometryColumn})";
+        using SqliteCommand command = new(sql, _geoPackage.Connection);
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
+    private string GetInsertSql(ConflictPolicy policy, List<CGeopackageAddDataHelper.ColumnInfo> columnInfo)
+    {
+        string verb = policy switch
+        {
+            ConflictPolicy.Ignore => "INSERT OR IGNORE",
+            ConflictPolicy.Replace => "INSERT OR REPLACE", 
+            _ => "INSERT"
+        };
+
+        List<string> columnNames = columnInfo.Select(c => c.Name).ToList();
+        string columnList = string.Join(", ", columnNames.Concat([_geometryColumn]));
+        string parameterList = string.Join(", ", columnNames.Select(c => $"@{c}").Concat(["@geom"]));
+        
+        return $"{verb} INTO {_layerName} ({columnList}) VALUES ({parameterList})";
+    }
+
+    private string BuildSelectSql(ReadOptions options)
+    {
+        // Layer name is validated when layer is created
+        string sql = $"SELECT * FROM {_layerName}";
+        
+        if (!string.IsNullOrEmpty(options.WhereClause))
+            sql += $" WHERE {options.WhereClause}";
+        
+        if (!string.IsNullOrEmpty(options.OrderBy))
+            sql += $" ORDER BY {options.OrderBy}";
+            
+        if (options.Limit.HasValue)
+            sql += $" LIMIT {options.Limit}";
+            
+        if (options.Offset.HasValue)
+            sql += $" OFFSET {options.Offset}";
+            
+        return sql;
+    }
+
+    private async Task<List<CGeopackageAddDataHelper.ColumnInfo>> GetColumnInfoAsync(CancellationToken ct)
+    {
+        return await Task.Run(GetColumnInfoSync, ct);
+    }
+
+    private List<CGeopackageAddDataHelper.ColumnInfo> GetColumnInfoSync()
+    {
+        List<CGeopackageAddDataHelper.ColumnInfo> columnInfo = [];
+        
+        // Layer name is validated when layer is created
+        string query = $"PRAGMA table_info({_layerName})";
+        using SqliteCommand command = new(query, _geoPackage.Connection);
+        using SqliteDataReader reader = command.ExecuteReader();
+        
+        while (reader.Read())
+        {
+            string columnName = reader.GetString(1);
+            string columnType = reader.GetString(2);
+            
+            if (!columnName.Equals("id", StringComparison.OrdinalIgnoreCase) && 
+                !columnName.Equals(_geometryColumn, StringComparison.OrdinalIgnoreCase))
             {
-                "INTEGER" or "INT" => long.Parse(value, NumberStyles.Integer, CultureInfo.InvariantCulture),
-                "REAL" or "FLOAT" or "DOUBLE" => double.Parse(value, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture),
-                "TEXT" or "VARCHAR" or "CHAR" => value,
-                _ => value // Default to string for unknown types
-            };
+                columnInfo.Add(new CGeopackageAddDataHelper.ColumnInfo(columnName, columnType));
+            }
+        }
+        
+        return columnInfo;
+    }
+
+    private async Task<List<string>> GetAttributeColumnNamesAsync(CancellationToken ct)
+    {
+        List<CGeopackageAddDataHelper.ColumnInfo> columnInfo = await GetColumnInfoAsync(ct);
+        return columnInfo.Select(c => c.Name).ToList();
+    }
+
+    private void BindFeature(
+        SqliteCommand command, 
+        FeatureRecord feature, 
+        List<CGeopackageAddDataHelper.ColumnInfo> columnInfo, 
+        WKBWriter wkbWriter, 
+        int srid)
+    {
+        for (int idx = 0; idx < columnInfo.Count; idx++)
+        {
+            CGeopackageAddDataHelper.ColumnInfo col = columnInfo[idx];
+            feature.Attributes.TryGetValue(col.Name, out string? raw);
+            string valForValidation = raw ?? string.Empty;
+            
+            CGeopackageAddDataHelper.ValidateDataTypeCompatibility(col, valForValidation, idx);
+
+            object converted = CGeopackageAddDataHelper.ConvertValueToSqliteType(col, valForValidation);
+            command.Parameters[$"@{col.Name}"].Value = converted ?? DBNull.Value;
         }
 
-        // Copy existing GPKG blob creation logic
-        private static byte[] CreateGpkgBlob(byte[] wkb, int srid)
+        if (feature.Geometry is null)
         {
-            var header = new List<byte>();
-            
-            // Magic number "GP" (0x47, 0x50)
-            header.AddRange(new byte[] { 0x47, 0x50 });
-            // Version (0x00)
-            header.Add(0x00);
-            // Flags (0x00 = no envelope, little endian, binary type = 0)
-            header.Add(0x00);
-            // SRID (4 bytes, little endian)
-            header.AddRange(BitConverter.GetBytes(srid));
-            // WKB data
-            header.AddRange(wkb);
-
-            return header.ToArray();
+            command.Parameters["@geom"].Value = DBNull.Value;
+        }
+        else
+        {
+            byte[] wkb = wkbWriter.Write(feature.Geometry);
+            byte[] gpkgBlob = CMPGeopackageUtils.CreateGpkgBlob(wkb, srid);
+            command.Parameters["@geom"].Value = gpkgBlob;
         }
     }
 }

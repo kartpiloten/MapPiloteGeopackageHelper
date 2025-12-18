@@ -1,76 +1,60 @@
-# MapPiloteGeopackageHelper
+﻿# MapPiloteGeopackageHelper
 
 Modern .NET library for creating, reading, and bulk-loading GeoPackage (GPKG) data using SQLite and NetTopologySuite.
 
-**Latest Release: v1.3.1** - Updated to .NET 10
+- [MapPiloteGeopackageHelper](https://github.com/kartpiloten/MapPiloteGeopackageHelper) — The core library with tests
+- [MapPiloteGeopackageHelperExamples](https://github.com/kartpiloten/MapPiloteGeopackageHelperExamples) — Example projects using the published NuGet package
 
-Note that in version 1.2.1 I have split the repository on github into two, hope it simplifies understanding:
-- [MapPiloteGeopackageHelper](https://github.com/kartpiloten/MapPiloteGeopackageHelper)
-    The core library with tests.
-- [MapPiloteGeopackageHelperExamples](https://github.com/kartpiloten/MapPiloteGeopackageHelperExamples)
-Example projects that uses the latest published NuGet package.
+## What This Library Does
+
+* Creates GeoPackages with required core tables  
+* Creates layers (tables) with geometry + custom attribute columns  
+* Bulk writes features with validation and progress tracking  
+* Streams features back with filtering, sorting, and paging  
+* Modern async patterns with cancellation support  
+* Schema inspection and validation  
+* Optional WAL mode for improved concurrency and performance
 
 ## Quick Start - Modern Fluent API
 
 ```csharp
 // Create/open GeoPackage with fluent API
-using var geoPackage = await GeoPackage.OpenAsync("data.gpkg", srid: 3006);
+using var geoPackage = await GeoPackage.OpenAsync("data.gpkg", defaultSrid: 3006);
 
 // Create layer with schema
 var layer = await geoPackage.EnsureLayerAsync("cities", new Dictionary<string, string>
 {
     ["name"] = "TEXT",
-    ["population"] = "INTEGER",
-    ["area_km2"] = "REAL"
+    ["population"] = "INTEGER"
 });
+
+// Create features with geometry
+var features = new[]
+{
+    new FeatureRecord(
+        new Point(674188, 6580251),  // Stockholm (SWEREF99 TM)
+        new Dictionary<string, string?> { ["name"] = "Stockholm", ["population"] = "975000" }),
+    new FeatureRecord(
+        new Point(319178, 6399617),  // Gothenburg
+        new Dictionary<string, string?> { ["name"] = "Gothenburg", ["population"] = "583000" })
+};
 
 // Bulk insert with progress
 var progress = new Progress<BulkProgress>(p => 
     Console.WriteLine($"Progress: {p.PercentComplete:F1}%"));
 
 await layer.BulkInsertAsync(features, 
-    new BulkInsertOptions(BatchSize: 1000, CreateSpatialIndex: true),
+    new BulkInsertOptions(BatchSize: 1000),
     progress);
 
-// Query with async streaming and ORDER BY support
+// Query and access both geometry and attributes
 await foreach (var city in layer.ReadFeaturesAsync(
-    new ReadOptions(
-        WhereClause: "population > 100000", 
-        OrderBy: "population DESC",  // ? Fixed in v1.2.2
-        Limit: 10)))
+    new ReadOptions(WhereClause: "population > 100000", OrderBy: "population DESC")))
 {
-    Console.WriteLine($"City: {city.Attributes["name"]} - {city.Attributes["population"]} people");
+    var point = (Point)city.Geometry!;
+    Console.WriteLine($"{city.Attributes["name"]}: {city.Attributes["population"]} people at ({point.X}, {point.Y})");
 }
-
-// Count and delete operations
-var count = await layer.CountAsync("population < 50000");
-var deleted = await layer.DeleteAsync("population < 10000");
 ```
-
-## WAL Mode Support (New!)
-
-Enable WAL (Write-Ahead Logging) mode for better concurrency and performance:
-
-```csharp
-// Create GeoPackage with WAL mode enabled
-CMPGeopackageCreateHelper.CreateGeoPackage(
-    "data.gpkg", 
-    srid: 3006,
-    walMode: true,
-    onStatus: Console.WriteLine);
-
-// WAL mode with default SRID (3006)
-CMPGeopackageCreateHelper.CreateGeoPackage("data.gpkg", walMode: true);
-
-// Backward compatible - existing code continues to work
-CMPGeopackageCreateHelper.CreateGeoPackage("data.gpkg", 3006);
-```
-
-### WAL Mode Benefits:
-- **Better Concurrency**: Multiple readers can access the database while a writer is active
-- **Improved Performance**: Better performance for write-heavy workloads  
-- **Atomic Commits**: Better crash recovery and data integrity
-- **No Manual PRAGMA**: No need to manually execute `PRAGMA journal_mode = WAL`
 
 ## Modern Features
 
@@ -85,6 +69,53 @@ CMPGeopackageCreateHelper.CreateGeoPackage("data.gpkg", 3006);
 | **Conflict Handling** | Insert policies (Abort/Ignore/Replace) | `ConflictPolicy.Ignore` |
 | **CRUD Operations** | Count, Delete with conditions | `await layer.DeleteAsync("status = 'old'")` |
 | **WAL Mode** | Write-Ahead Logging for concurrency | `CreateGeoPackage(path, walMode: true)` |
+| **Input Validation** | SQL injection protection and parameter validation | Automatic identifier sanitization |
+
+## WAL Mode Support
+
+Enable WAL (Write-Ahead Logging) mode for better concurrency and performance:
+
+```csharp
+// Create GeoPackage with WAL mode enabled
+CMPGeopackageCreateHelper.CreateGeoPackage(
+    "data.gpkg", 
+    srid: 3006,
+    walMode: true,
+    onStatus: Console.WriteLine);
+
+// Create a layer with schema
+var schema = new Dictionary<string, string>
+{
+    ["name"] = "TEXT",
+    ["population"] = "INTEGER"
+};
+GeopackageLayerCreateHelper.CreateGeopackageLayer("data.gpkg", "cities", schema);
+
+// Create features with geometry and insert
+var features = new[]
+{
+    new FeatureRecord(
+        new Point(674188, 6580251),  // Stockholm (SWEREF99 TM)
+        new Dictionary<string, string?> { ["name"] = "Stockholm", ["population"] = "975000" }),
+    new FeatureRecord(
+        new Point(319178, 6399617),  // Gothenburg
+        new Dictionary<string, string?> { ["name"] = "Gothenburg", ["population"] = "583000" })
+};
+CGeopackageAddDataHelper.BulkInsertFeatures("data.gpkg", "cities", features);
+
+// Read features back with geometry
+foreach (var city in CMPGeopackageReadDataHelper.ReadFeatures("data.gpkg", "cities"))
+{
+    var point = (Point)city.Geometry!;
+    Console.WriteLine($"{city.Attributes["name"]}: {point.X}, {point.Y}");
+}
+```
+
+### WAL Mode Benefits
+- **Better Concurrency**: Multiple readers can access the database while a writer is active
+- **Improved Performance**: Better performance for write-heavy workloads  
+- **Atomic Commits**: Better crash recovery and data integrity
+- **No Manual PRAGMA**: No need to manually execute `PRAGMA journal_mode = WAL`
 
 ## API Comparison
 
@@ -125,7 +156,38 @@ CMPGeopackageCreateHelper.CreateGeoPackage("path.gpkg", walMode: true);
 CMPGeopackageCreateHelper.CreateGeoPackage("path.gpkg", 4326, true, Console.WriteLine);
 ```
 
+## Getting Started
+
+1. **Install**: `dotnet add package MapPiloteGeopackageHelper`
+2. **Explore**: Check out the [MapPiloteGeopackageHelperExamples](https://github.com/kartpiloten/MapPiloteGeopackageHelperExamples) repository for example projects
+3. **Inspect**: Use `CMPGeopackageReadDataHelper.GetGeopackageInfo()` to inspect unknown GeoPackage files
+4. **Learn**: Traditional API patterns are also available in the examples repository
+
+Open the generated `.gpkg` files in QGIS, ArcGIS, or any GIS software!
+
+## Reference Links (GeoPackage Specification)
+
+- **GeoPackage Encoding Standard** - https://www.geopackage.org/spec/
+- **OGC Standard page** - https://www.ogc.org/standard/geopackage/
+- **Core tables (spec sections)**
+  - gpkg_contents: https://www.geopackage.org/spec/#_contents
+  - gpkg_spatial_ref_sys: https://www.geopackage.org/spec/#_spatial_ref_sys
+  - gpkg_geometry_columns: https://www.geopackage.org/spec/#_geometry_columns
+- **Binary geometry format** - https://www.geopackage.org/spec/#gpb_format
+
 ## Version History
+
+### v1.4.0
+- **Security**: Added SQL injection protection via identifier validation for table and column names
+- **Robustness**: Transaction rollback on failure in bulk insert operations
+- **Robustness**: Input validation for BatchSize, SRID, Limit, and Offset parameters
+- **Fixed**: `SetupSpatialReferenceSystem` now properly uses the `srid` parameter instead of always inserting default SRIDs
+- **Fixed**: `CreateSpatialIndex` option in `BulkInsertOptions` is now implemented
+- **Improved**: Centralized `CreateGpkgBlob` utility (removed duplicate implementations)
+- **Improved**: Streaming support in `BulkInsertAsync` - only materializes features when progress reporting is requested
+- **Improved**: Better exception handling with specific exception types instead of generic catch blocks
+- **Documentation**: Added comprehensive XML documentation to all public types and members
+- **Documentation**: XML documentation file now included in NuGet package
 
 ### v1.3.1
 - **Updated**: Targeting .NET 10
@@ -143,32 +205,21 @@ CMPGeopackageCreateHelper.CreateGeoPackage("path.gpkg", 4326, true, Console.Writ
 - **Added**: Progress reporting for bulk operations
 - **Added**: Rich query options (WHERE, LIMIT, OFFSET, ORDER BY)
 
-## Reference Links (GeoPackage Specification)
+## Support & Sustainability
 
-- **GeoPackage Encoding Standard** - https://www.geopackage.org/spec/
-- **OGC Standard page** - https://www.ogc.org/standard/geopackage/
-- **Core tables (spec sections)**
-  - gpkg_contents: https://www.geopackage.org/spec/#_contents
-  - gpkg_spatial_ref_sys: https://www.geopackage.org/spec/#_spatial_ref_sys
-  - gpkg_geometry_columns: https://www.geopackage.org/spec/#_geometry_columns
-- **Binary geometry format** - https://www.geopackage.org/spec/#gpb_format
+**MapPiloteGeopackageHelper** is an open-source .NET library for working with GeoPackage data,
+maintained by a single developer in spare time.
 
-## What This Library Does
+If you use this library in professional, commercial, or public-sector projects, please consider
+supporting its continued maintenance and development.
 
-* Creates GeoPackages with required core tables  
-* Creates layers (tables) with geometry + custom attribute columns  
-* Bulk writes features with validation and progress tracking  
-* Streams features back with filtering, sorting, and paging  
-* Modern async patterns with cancellation support  
-* Schema inspection and validation  
-* Optional WAL mode for improved concurrency and performance
+### Ways to support
 
-## Getting Started
+- ⭐ Star the repository to increase visibility
+- 💬 Report issues and suggest improvements
+- ❤️ Sponsor ongoing maintenance via GitHub Sponsors
 
-1. **Install**: `dotnet add package MapPiloteGeopackageHelper`
-2. **Explore**: Check out `FluentApiExample` project 
-3. **Inspect**: Use `MapPiloteGeopackageHelperSchemaBrowser` for unknown files
-4. **Learn**: Traditional patterns in `MapPiloteGeopackageHelperHelloWorld`
+Commercial support, consulting, and custom development are available for organizations using
+MapPiloteGeopackageHelper in production environments.
 
-Open the generated `.gpkg` files in QGIS, ArcGIS, or any GIS software!
-
+> Sustainable open source enables better tools for everyone.
