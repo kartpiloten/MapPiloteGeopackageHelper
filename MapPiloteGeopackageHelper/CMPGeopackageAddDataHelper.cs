@@ -40,7 +40,8 @@ public class CGeopackageAddDataHelper
     }
 
     /// <summary>
-    /// Adds a point to a GeoPackage layer with attribute data and enhanced validation
+    /// Adds a point to a GeoPackage layer with attribute data and enhanced validation.
+    /// Automatically updates the layer extent in gpkg_contents after insertion.
     /// </summary>
     public static void AddPointToGeoPackage(string geoPackagePath, string layerName, Point point, string[] attributeData, Action<string>? onWarning = null)
     {
@@ -95,10 +96,14 @@ public class CGeopackageAddDataHelper
         command.Parameters.AddWithValue("@geom", gpkgBlob);
 
         command.ExecuteNonQuery();
+        
+        // Update layer extent after successful insert so QGIS "Zoom to Layer" works correctly
+        CMPGeopackageUtils.UpdateLayerExtent(connection, layerName, geometryColumn);
     }
 
     /// <summary>
     /// Bulk insert features (attributes + optional geometry) with transactional batching.
+    /// Automatically updates the layer extent in gpkg_contents after insertion.
     /// </summary>
     public static void BulkInsertFeatures(
         string geoPackagePath,
@@ -180,6 +185,9 @@ public class CGeopackageAddDataHelper
             }
 
             txn?.Commit();
+            
+            // Update layer extent after successful insert so QGIS "Zoom to Layer" works correctly
+            CMPGeopackageUtils.UpdateLayerExtent(connection, layerName, geometryColumn);
         }
         catch
         {

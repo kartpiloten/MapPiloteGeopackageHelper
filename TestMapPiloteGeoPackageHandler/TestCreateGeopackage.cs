@@ -1,30 +1,30 @@
-﻿using System.IO;
-using NetTopologySuite.Geometries;
+﻿using NetTopologySuite.Geometries;
 using MapPiloteGeopackageHelper;
 
 namespace TestMapPiloteGeoPackageHandler;
 
+/// <summary>
+/// Tests for basic GeoPackage creation.
+/// Output files are saved to TestResults/GeoPackages folder for inspection in QGIS.
+/// </summary>
 [TestClass]
 public sealed class TestCreateGeoPackage
 {
     [TestMethod]
     public void TestMethod1SimpleCreate()
     {
-        string filePath = @"C:\temp\1SimpleCreate.gpkg";
-        if (File.Exists(filePath))
-            File.Delete(filePath);
+        string filePath = TestOutputHelper.GetTestOutputPath();
 
         CMPGeopackageCreateHelper.CreateGeoPackage(filePath);
 
         Assert.IsTrue(File.Exists(filePath), "GeoPackage file was not created.");
+        TestOutputHelper.LogOutputLocation(filePath);
     }
 
     [TestMethod]
     public void TestMethod2CreateAddPoint()
     {
-        string filePath = @"C:\temp\2CreateAndAddPoint.gpkg";
-        if (File.Exists(filePath))
-            File.Delete(filePath);
+        string filePath = TestOutputHelper.GetTestOutputPath();
 
         CMPGeopackageCreateHelper.CreateGeoPackage(filePath);
 
@@ -40,5 +40,6 @@ public sealed class TestCreateGeoPackage
         CGeopackageAddDataHelper.AddPointToGeoPackage(filePath, "MyTestPoint", point, attributdata);
 
         Assert.IsTrue(File.Exists(filePath), "GeoPackage file was not created.");
+        TestOutputHelper.LogOutputLocation(filePath);
     }
 }

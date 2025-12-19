@@ -295,4 +295,162 @@ internal partial class CMPGeopackageUtils
     {
         return (181750.0, 6090250.0, 1086500.0, 7689500.0);
     }
+
+    /// <summary>
+    /// Updates the layer extent in gpkg_contents based on actual geometry data.
+    /// This ensures QGIS "Zoom to Layer" works correctly.
+    /// Adds a 5% buffer around the extent for better visualization.
+    /// </summary>
+    /// <param name="connection">Open SQLite connection</param>
+    /// <param name="layerName">Name of the layer to update</param>
+    /// <param name="geometryColumn">Name of the geometry column (default: "geom")</param>
+    /// <param name="bufferPercent">Percentage buffer to add around extent (default: 5%)</param>
+    internal static void UpdateLayerExtent(SqliteConnection connection, string layerName, string geometryColumn = "geom", double bufferPercent = 5.0)
+    {
+        ValidateIdentifier(layerName, "layer name");
+        ValidateIdentifier(geometryColumn, "geometry column name");
+
+        // Calculate extent from actual geometry data
+        string sql = $"SELECT {geometryColumn} FROM {layerName} WHERE {geometryColumn} IS NOT NULL";
+        
+        double? minX = null, minY = null, maxX = null, maxY = null;
+        
+        using (SqliteCommand cmd = new(sql, connection))
+        using (SqliteDataReader reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                byte[] gpkgBlob = (byte[])reader.GetValue(0);
+                NetTopologySuite.Geometries.Geometry? geom = CMPGeopackageReadDataHelper.ReadGeometryFromGpkgBlob(gpkgBlob);
+                
+                if (geom == null || geom.IsEmpty)
+                    continue;
+
+                NetTopologySuite.Geometries.Envelope env = geom.EnvelopeInternal;
+                
+                if (minX == null || env.MinX < minX) minX = env.MinX;
+                if (minY == null || env.MinY < minY) minY = env.MinY;
+                if (maxX == null || env.MaxX > maxX) maxX = env.MaxX;
+                if (maxY == null || env.MaxY > maxY) maxY = env.MaxY;
+            }
+        }
+
+        // Update gpkg_contents with the calculated extent (with buffer)
+        if (minX != null && minY != null && maxX != null && maxY != null)
+        {
+            // Calculate buffer size based on extent dimensions
+            double width = maxX.Value - minX.Value;
+            double height = maxY.Value - minY.Value;
+            
+            // For point features or very small extents, use a minimum buffer
+            // This ensures the map canvas shows a reasonable area around the features
+            const double minBuffer = 100.0; // 100 meters minimum buffer for projected CRS like SWEREF99
+            
+            double bufferX = Math.Max(width * bufferPercent / 100.0, minBuffer);
+            double bufferY = Math.Max(height * bufferPercent / 100.0, minBuffer);
+            
+            // Apply buffer to extent
+            double bufferedMinX = minX.Value - bufferX;
+            double bufferedMinY = minY.Value - bufferY;
+            double bufferedMaxX = maxX.Value + bufferX;
+            double bufferedMaxY = maxY.Value + bufferY;
+
+            const string updateSql = @"
+                UPDATE gpkg_contents 
+                SET min_x = @min_x, min_y = @min_y, max_x = @max_x, max_y = @max_y,
+                    last_change = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                WHERE table_name = @table_name";
+            
+            using SqliteCommand updateCmd = new(updateSql, connection);
+            updateCmd.Parameters.AddWithValue("@table_name", layerName);
+            updateCmd.Parameters.AddWithValue("@min_x", bufferedMinX);
+            updateCmd.Parameters.AddWithValue("@min_y", bufferedMinY);
+            updateCmd.Parameters.AddWithValue("@max_x", bufferedMaxX);
+            updateCmd.Parameters.AddWithValue("@max_y", bufferedMaxY);
+            updateCmd.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>
+    /// Updates the layer extent in gpkg_contents based on actual geometry data.
+    /// </summary>
+    /// <param name="geoPackagePath">Path to the GeoPackage file</param>
+    /// <param name="layerName">Name of the layer to update</param>
+    /// <param name="geometryColumn">Name of the geometry column (default: "geom")</param>
+    /// <param name="bufferPercent">Percentage buffer to add around extent (default: 5%)</param>
+    public static void UpdateLayerExtent(string geoPackagePath, string layerName, string geometryColumn = "geom", double bufferPercent = 5.0)
+    {
+        if (!File.Exists(geoPackagePath))
+            throw new FileNotFoundException($"GeoPackage file not found: {geoPackagePath}");
+
+        using SqliteConnection connection = new($"Data Source={geoPackagePath}");
+        connection.Open();
+        UpdateLayerExtent(connection, layerName, geometryColumn, bufferPercent);
+    }
+
+    /// <summary>
+    /// Gets the declared geometry type for a layer from gpkg_geometry_columns
+    /// </summary>
+    internal static string? GetLayerGeometryType(SqliteConnection connection, string layerName)
+    {
+        const string sql = "SELECT geometry_type_name FROM gpkg_geometry_columns WHERE table_name = @table_name";
+        using SqliteCommand cmd = new(sql, connection);
+        cmd.Parameters.AddWithValue("@table_name", layerName);
+        return cmd.ExecuteScalar()?.ToString();
+    }
+
+    /// <summary>
+    /// Validates that a geometry matches the declared layer geometry type.
+    /// </summary>
+    /// <param name="geometry">The geometry to validate</param>
+    /// <param name="declaredType">The declared geometry type from gpkg_geometry_columns (e.g., "POINT", "LINESTRING")</param>
+    /// <returns>True if the geometry is compatible with the declared type</returns>
+    internal static bool IsGeometryTypeCompatible(NetTopologySuite.Geometries.Geometry? geometry, string? declaredType)
+    {
+        if (geometry == null || string.IsNullOrEmpty(declaredType))
+            return true; // No validation possible
+
+        string actualType = geometry.GeometryType.ToUpperInvariant();
+        string declared = declaredType.ToUpperInvariant();
+
+        // GEOMETRY type accepts any geometry
+        if (declared == "GEOMETRY" || declared == "GEOMETRYCOLLECTION")
+            return true;
+
+        // Direct match
+        if (actualType == declared)
+            return true;
+
+        // Handle Multi* variants
+        // A layer declared as MULTIPOINT should accept both Point and MultiPoint
+        // But a POINT layer should NOT accept MultiPoint
+        return declared switch
+        {
+            "MULTIPOINT" => actualType is "POINT" or "MULTIPOINT",
+            "MULTILINESTRING" => actualType is "LINESTRING" or "MULTILINESTRING",
+            "MULTIPOLYGON" => actualType is "POLYGON" or "MULTIPOLYGON",
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Validates geometry type and throws if incompatible.
+    /// </summary>
+    /// <param name="geometry">The geometry to validate</param>
+    /// <param name="declaredType">The declared geometry type</param>
+    /// <param name="layerName">Layer name for error message</param>
+    /// <exception cref="ArgumentException">Thrown when geometry type doesn't match</exception>
+    internal static void ValidateGeometryType(NetTopologySuite.Geometries.Geometry? geometry, string? declaredType, string layerName)
+    {
+        if (geometry == null || string.IsNullOrEmpty(declaredType))
+            return;
+
+        if (!IsGeometryTypeCompatible(geometry, declaredType))
+        {
+            throw new ArgumentException(
+                $"Geometry type mismatch: Layer '{layerName}' is declared as '{declaredType}' " +
+                $"but received a '{geometry.GeometryType}'. " +
+                "This will cause display issues in GIS applications like QGIS.");
+        }
+    }
 }

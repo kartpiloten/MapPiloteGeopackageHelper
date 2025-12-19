@@ -39,12 +39,12 @@ var features = new[]
         new Dictionary<string, string?> { ["name"] = "Gothenburg", ["population"] = "583000" })
 };
 
-// Bulk insert with progress
+// Bulk insert with validation and progress
 var progress = new Progress<BulkProgress>(p => 
     Console.WriteLine($"Progress: {p.PercentComplete:F1}%"));
 
 await layer.BulkInsertAsync(features, 
-    new BulkInsertOptions(BatchSize: 1000),
+    new BulkInsertOptions(BatchSize: 1000, ValidateGeometryType: true),
     progress);
 
 // Query and access both geometry and attributes
@@ -70,6 +70,8 @@ await foreach (var city in layer.ReadFeaturesAsync(
 | **CRUD Operations** | Count, Delete with conditions | `await layer.DeleteAsync("status = 'old'")` |
 | **WAL Mode** | Write-Ahead Logging for concurrency | `CreateGeoPackage(path, walMode: true)` |
 | **Input Validation** | SQL injection protection and parameter validation | Automatic identifier sanitization |
+| **Geometry Validation** | Optional strict geometry type checking | `new BulkInsertOptions(ValidateGeometryType: true)` |
+| **QGIS Compatibility** | Auto-update `gpkg_contents` extents with buffer | Automatic after inserts |
 
 ## WAL Mode Support
 
@@ -83,32 +85,6 @@ CMPGeopackageCreateHelper.CreateGeoPackage(
     walMode: true,
     onStatus: Console.WriteLine);
 
-// Create a layer with schema
-var schema = new Dictionary<string, string>
-{
-    ["name"] = "TEXT",
-    ["population"] = "INTEGER"
-};
-GeopackageLayerCreateHelper.CreateGeopackageLayer("data.gpkg", "cities", schema);
-
-// Create features with geometry and insert
-var features = new[]
-{
-    new FeatureRecord(
-        new Point(674188, 6580251),  // Stockholm (SWEREF99 TM)
-        new Dictionary<string, string?> { ["name"] = "Stockholm", ["population"] = "975000" }),
-    new FeatureRecord(
-        new Point(319178, 6399617),  // Gothenburg
-        new Dictionary<string, string?> { ["name"] = "Gothenburg", ["population"] = "583000" })
-};
-CGeopackageAddDataHelper.BulkInsertFeatures("data.gpkg", "cities", features);
-
-// Read features back with geometry
-foreach (var city in CMPGeopackageReadDataHelper.ReadFeatures("data.gpkg", "cities"))
-{
-    var point = (Point)city.Geometry!;
-    Console.WriteLine($"{city.Attributes["name"]}: {point.X}, {point.Y}");
-}
 ```
 
 ### WAL Mode Benefits
@@ -116,45 +92,6 @@ foreach (var city in CMPGeopackageReadDataHelper.ReadFeatures("data.gpkg", "citi
 - **Improved Performance**: Better performance for write-heavy workloads  
 - **Atomic Commits**: Better crash recovery and data integrity
 - **No Manual PRAGMA**: No need to manually execute `PRAGMA journal_mode = WAL`
-
-## API Comparison
-
-### Modern API (Recommended)
-```csharp
-// One-liner with progress and options
-using var gp = await GeoPackage.OpenAsync("data.gpkg");
-var layer = await gp.EnsureLayerAsync("places", schema);
-await layer.BulkInsertAsync(features, options, progress);
-```
-
-### Traditional API (Still Supported)
-```csharp
-// Multi-step process with optional WAL mode
-CMPGeopackageCreateHelper.CreateGeoPackage(path, srid, walMode: true);
-GeopackageLayerCreateHelper.CreateGeopackageLayer(path, name, schema);
-CGeopackageAddDataHelper.BulkInsertFeatures(path, name, features);
-```
-
-### Available CreateGeoPackage Overloads
-```csharp
-// Basic creation
-CMPGeopackageCreateHelper.CreateGeoPackage("path.gpkg");
-
-// With custom SRID
-CMPGeopackageCreateHelper.CreateGeoPackage("path.gpkg", srid: 4326);
-
-// With status callback
-CMPGeopackageCreateHelper.CreateGeoPackage("path.gpkg", onStatus: Console.WriteLine);
-
-// With SRID and callback
-CMPGeopackageCreateHelper.CreateGeoPackage("path.gpkg", 4326, Console.WriteLine);
-
-// With WAL mode (default SRID)
-CMPGeopackageCreateHelper.CreateGeoPackage("path.gpkg", walMode: true);
-
-// Full control: SRID + WAL + callback
-CMPGeopackageCreateHelper.CreateGeoPackage("path.gpkg", 4326, true, Console.WriteLine);
-```
 
 ## Getting Started
 
@@ -176,6 +113,13 @@ Open the generated `.gpkg` files in QGIS, ArcGIS, or any GIS software!
 - **Binary geometry format** - https://www.geopackage.org/spec/#gpb_format
 
 ## Version History
+
+### v1.4.1
+- Improve geometry type validation and test output handling
+- Add geometry type validation to bulk inserts and fluent API (optional strict mode)
+- Auto-update layer extents in `gpkg_contents` for QGIS compatibility
+- Add comprehensive geometry type tests (all OGC types, validation, QGIS behavior)
+
 
 ### v1.4.0
 - **Security**: Added SQL injection protection via identifier validation for table and column names

@@ -30,11 +30,13 @@ namespace MapPiloteGeopackageHelper;
 /// <param name="Srid">Spatial Reference System Identifier for the geometry data. Default is 3006 (SWEREF99 TM).</param>
 /// <param name="CreateSpatialIndex">Whether to create a spatial index after bulk insert. Default is false.</param>
 /// <param name="ConflictPolicy">How to handle conflicts during insert. Default is Abort.</param>
+/// <param name="ValidateGeometryType">Whether to validate geometry type against the specified GeometryType option. Default is false.</param>
 public sealed record BulkInsertOptions(
     int BatchSize = 1000,
     int Srid = 3006,
     bool CreateSpatialIndex = false,
-    ConflictPolicy ConflictPolicy = ConflictPolicy.Abort
+    ConflictPolicy ConflictPolicy = ConflictPolicy.Abort,
+    bool ValidateGeometryType = false
 )
 {
     /// <summary>

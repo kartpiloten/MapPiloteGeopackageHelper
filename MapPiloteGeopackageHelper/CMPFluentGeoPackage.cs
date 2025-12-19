@@ -221,6 +221,13 @@ public sealed class GeoPackageLayer
         options ??= new BulkInsertOptions();
         options.Validate();
 
+        // Get layer geometry type for validation if enabled
+        string? declaredGeometryType = null;
+        if (options.ValidateGeometryType)
+        {
+            declaredGeometryType = CMPGeopackageUtils.GetLayerGeometryType(_geoPackage.Connection, _layerName);
+        }
+
         // Don't call ToList() - process in streaming fashion
         // For progress, we need to count if progress is requested
         int total = 0;
@@ -256,6 +263,12 @@ public sealed class GeoPackageLayer
             foreach (FeatureRecord feature in featureSource)
             {
                 ct.ThrowIfCancellationRequested();
+
+                // Validate geometry type if enabled
+                if (options.ValidateGeometryType && feature.Geometry is not null)
+                {
+                    CMPGeopackageUtils.ValidateGeometryType(feature.Geometry, declaredGeometryType, _layerName);
+                }
 
                 BindFeature(command, feature, columnInfo, wkbWriter, options.Srid);
                 await command.ExecuteNonQueryAsync(ct);

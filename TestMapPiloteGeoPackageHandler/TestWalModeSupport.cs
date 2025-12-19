@@ -3,329 +3,234 @@ using Microsoft.Data.Sqlite;
 
 namespace TestMapPiloteGeoPackageHandler;
 
+/// <summary>
+/// Tests for WAL mode support.
+/// Output files are saved to TestResults/GeoPackages folder for inspection in QGIS.
+/// </summary>
 [TestClass]
 public class TestWalModeSupport
 {
-    private static string CreateTempGpkgPath()
-    {
-        string path = Path.Combine(Path.GetTempPath(), $"wal_test_{Guid.NewGuid():N}.gpkg");
-        return path;
-    }
-
     [TestMethod]
     public void CreateGeoPackage_WithWalModeTrue_ShouldEnableWalMode()
     {
-        // Arrange
-        string gpkg = CreateTempGpkgPath();
+        string gpkg = TestOutputHelper.GetTestOutputPath();
         List<string> statusMessages = [];
         
-        try
-        {
-            // Act
-            CMPGeopackageCreateHelper.CreateGeoPackage(
-                gpkg, 
-                srid: 3006, 
-                walMode: true, 
-                onStatus: msg => statusMessages.Add(msg));
+        CMPGeopackageCreateHelper.CreateGeoPackage(
+            gpkg, 
+            srid: 3006, 
+            walMode: true, 
+            onStatus: msg => statusMessages.Add(msg));
 
-            // Assert
-            Assert.IsTrue(File.Exists(gpkg), "GeoPackage file should be created");
-            
-            bool hasWalMessage = statusMessages.Any(msg => 
-                msg.Contains("Enabled WAL (Write-Ahead Logging) mode"));
-            Assert.IsTrue(hasWalMessage, "Should report WAL mode enablement");
+        Assert.IsTrue(File.Exists(gpkg), "GeoPackage file should be created");
+        
+        bool hasWalMessage = statusMessages.Any(msg => 
+            msg.Contains("Enabled WAL (Write-Ahead Logging) mode"));
+        Assert.IsTrue(hasWalMessage, "Should report WAL mode enablement");
 
-            using SqliteConnection connection = new($"Data Source={gpkg}");
-            connection.Open();
-            
-            using SqliteCommand command = new("PRAGMA journal_mode", connection);
-            string? journalMode = command.ExecuteScalar()?.ToString();
-            
-            Assert.AreEqual("wal", journalMode?.ToLower(), "Journal mode should be set to WAL");
-        }
-        finally
-        {
-            TryDeleteFile(gpkg);
-        }
+        using SqliteConnection connection = new($"Data Source={gpkg}");
+        connection.Open();
+        
+        using SqliteCommand command = new("PRAGMA journal_mode", connection);
+        string? journalMode = command.ExecuteScalar()?.ToString();
+        
+        Assert.AreEqual("wal", journalMode?.ToLower(), "Journal mode should be set to WAL");
+        TestOutputHelper.LogOutputLocation(gpkg);
     }
 
     [TestMethod]
     public void CreateGeoPackage_WithWalModeFalse_ShouldUseDefaultJournalMode()
     {
-        // Arrange
-        string gpkg = CreateTempGpkgPath();
+        string gpkg = TestOutputHelper.GetTestOutputPath();
         List<string> statusMessages = [];
         
-        try
-        {
-            // Act
-            CMPGeopackageCreateHelper.CreateGeoPackage(
-                gpkg, 
-                srid: 3006, 
-                walMode: false, 
-                onStatus: msg => statusMessages.Add(msg));
+        CMPGeopackageCreateHelper.CreateGeoPackage(
+            gpkg, 
+            srid: 3006, 
+            walMode: false, 
+            onStatus: msg => statusMessages.Add(msg));
 
-            // Assert
-            Assert.IsTrue(File.Exists(gpkg), "GeoPackage file should be created");
-            
-            bool hasWalMessage = statusMessages.Any(msg => 
-                msg.Contains("Enabled WAL (Write-Ahead Logging) mode"));
-            Assert.IsFalse(hasWalMessage, "Should not report WAL mode enablement when disabled");
+        Assert.IsTrue(File.Exists(gpkg), "GeoPackage file should be created");
+        
+        bool hasWalMessage = statusMessages.Any(msg => 
+            msg.Contains("Enabled WAL (Write-Ahead Logging) mode"));
+        Assert.IsFalse(hasWalMessage, "Should not report WAL mode enablement when disabled");
 
-            using SqliteConnection connection = new($"Data Source={gpkg}");
-            connection.Open();
-            
-            using SqliteCommand command = new("PRAGMA journal_mode", connection);
-            string? journalMode = command.ExecuteScalar()?.ToString();
-            
-            Assert.AreNotEqual("wal", journalMode?.ToLower(), "Journal mode should not be WAL when walMode=false");
-        }
-        finally
-        {
-            TryDeleteFile(gpkg);
-        }
+        using SqliteConnection connection = new($"Data Source={gpkg}");
+        connection.Open();
+        
+        using SqliteCommand command = new("PRAGMA journal_mode", connection);
+        string? journalMode = command.ExecuteScalar()?.ToString();
+        
+        Assert.AreNotEqual("wal", journalMode?.ToLower(), "Journal mode should not be WAL when walMode=false");
+        TestOutputHelper.LogOutputLocation(gpkg);
     }
 
     [TestMethod]
     public void CreateGeoPackage_BackwardCompatibility_WithoutWalParameter_ShouldWork()
     {
-        // Test that existing method calls without walMode parameter continue to work
-        string gpkg = CreateTempGpkgPath();
+        string gpkg = TestOutputHelper.GetTestOutputPath();
         
-        try
-        {
-            // Act - Use old method signature (should call the overload with walMode=false)
-            CMPGeopackageCreateHelper.CreateGeoPackage(gpkg, 3006);
+        CMPGeopackageCreateHelper.CreateGeoPackage(gpkg, 3006);
 
-            // Assert
-            Assert.IsTrue(File.Exists(gpkg), "GeoPackage should be created with backward compatible call");
+        Assert.IsTrue(File.Exists(gpkg), "GeoPackage should be created with backward compatible call");
 
-            using SqliteConnection connection = new($"Data Source={gpkg}");
-            connection.Open();
-            
-            using SqliteCommand command = new("PRAGMA journal_mode", connection);
-            string? journalMode = command.ExecuteScalar()?.ToString();
-            
-            Assert.AreNotEqual("wal", journalMode?.ToLower(), "Should default to non-WAL mode for backward compatibility");
-        }
-        finally
-        {
-            TryDeleteFile(gpkg);
-        }
+        using SqliteConnection connection = new($"Data Source={gpkg}");
+        connection.Open();
+        
+        using SqliteCommand command = new("PRAGMA journal_mode", connection);
+        string? journalMode = command.ExecuteScalar()?.ToString();
+        
+        Assert.AreNotEqual("wal", journalMode?.ToLower(), "Should default to non-WAL mode for backward compatibility");
+        TestOutputHelper.LogOutputLocation(gpkg);
     }
 
     [TestMethod]
     public void CreateGeoPackage_BackwardCompatibility_WithCallback_ShouldWork()
     {
-        // Test backward compatibility with callback parameter
-        string gpkg = CreateTempGpkgPath();
+        string gpkg = TestOutputHelper.GetTestOutputPath();
         List<string> statusMessages = [];
         
-        try
-        {
-            // Act - Use old method signature with callback
-            CMPGeopackageCreateHelper.CreateGeoPackage(
-                gpkg, 
-                srid: 3006, 
-                onStatus: msg => statusMessages.Add(msg));
+        CMPGeopackageCreateHelper.CreateGeoPackage(
+            gpkg, 
+            srid: 3006, 
+            onStatus: msg => statusMessages.Add(msg));
 
-            // Assert
-            Assert.IsTrue(File.Exists(gpkg), "GeoPackage should be created");
-            Assert.IsTrue(statusMessages.Count > 0, "Should receive status messages");
-            
-            bool hasWalMessage = statusMessages.Any(msg => 
-                msg.Contains("Enabled WAL (Write-Ahead Logging) mode"));
-            Assert.IsFalse(hasWalMessage, "Should not enable WAL by default in backward compatible call");
-        }
-        finally
-        {
-            TryDeleteFile(gpkg);
-        }
+        Assert.IsTrue(File.Exists(gpkg), "GeoPackage should be created");
+        Assert.IsTrue(statusMessages.Count > 0, "Should receive status messages");
+        
+        bool hasWalMessage = statusMessages.Any(msg => 
+            msg.Contains("Enabled WAL (Write-Ahead Logging) mode"));
+        Assert.IsFalse(hasWalMessage, "Should not enable WAL by default in backward compatible call");
+        TestOutputHelper.LogOutputLocation(gpkg);
     }
 
     [TestMethod]
     public void CreateGeoPackage_WalModeWithCustomSrid_ShouldWork()
     {
-        // Test that WAL mode works with custom SRID
-        string gpkg = CreateTempGpkgPath();
+        string gpkg = TestOutputHelper.GetTestOutputPath();
         List<string> statusMessages = [];
         
-        try
-        {
-            // Act
-            CMPGeopackageCreateHelper.CreateGeoPackage(
-                gpkg, 
-                srid: 4326,
-                walMode: true, 
-                onStatus: msg => statusMessages.Add(msg));
+        CMPGeopackageCreateHelper.CreateGeoPackage(
+            gpkg, 
+            srid: 4326,
+            walMode: true, 
+            onStatus: msg => statusMessages.Add(msg));
 
-            // Assert
-            Assert.IsTrue(File.Exists(gpkg), "GeoPackage should be created");
-            
-            bool hasWalMessage = statusMessages.Any(msg => 
-                msg.Contains("Enabled WAL (Write-Ahead Logging) mode"));
-            Assert.IsTrue(hasWalMessage, "Should enable WAL mode");
+        Assert.IsTrue(File.Exists(gpkg), "GeoPackage should be created");
+        
+        bool hasWalMessage = statusMessages.Any(msg => 
+            msg.Contains("Enabled WAL (Write-Ahead Logging) mode"));
+        Assert.IsTrue(hasWalMessage, "Should enable WAL mode");
 
-            using SqliteConnection connection = new($"Data Source={gpkg}");
-            connection.Open();
-            
-            using SqliteCommand journalCommand = new("PRAGMA journal_mode", connection);
-            string? journalMode = journalCommand.ExecuteScalar()?.ToString();
-            Assert.AreEqual("wal", journalMode?.ToLower(), "Should use WAL mode");
+        using SqliteConnection connection = new($"Data Source={gpkg}");
+        connection.Open();
+        
+        using SqliteCommand journalCommand = new("PRAGMA journal_mode", connection);
+        string? journalMode = journalCommand.ExecuteScalar()?.ToString();
+        Assert.AreEqual("wal", journalMode?.ToLower(), "Should use WAL mode");
 
-            using SqliteCommand sridCommand = new(
-                "SELECT COUNT(*) FROM gpkg_spatial_ref_sys WHERE srs_id = 4326", connection);
-            int sridCount = Convert.ToInt32(sridCommand.ExecuteScalar());
-            Assert.AreEqual(1, sridCount, "WGS84 SRID should be present");
-        }
-        finally
-        {
-            TryDeleteFile(gpkg);
-        }
+        using SqliteCommand sridCommand = new(
+            "SELECT COUNT(*) FROM gpkg_spatial_ref_sys WHERE srs_id = 4326", connection);
+        int sridCount = Convert.ToInt32(sridCommand.ExecuteScalar());
+        Assert.AreEqual(1, sridCount, "WGS84 SRID should be present");
+        TestOutputHelper.LogOutputLocation(gpkg);
     }
 
     [TestMethod]
     public void CreateGeoPackage_WalModeWithDefaultSrid_ShouldWork()
     {
-        // Test WAL mode with default SRID (using walMode-first overload)
-        string gpkg = CreateTempGpkgPath();
+        string gpkg = TestOutputHelper.GetTestOutputPath();
         List<string> statusMessages = [];
         
-        try
-        {
-            // Act - Use walMode as first parameter after path
-            CMPGeopackageCreateHelper.CreateGeoPackage(
-                gpkg, 
-                walMode: true, 
-                onStatus: msg => statusMessages.Add(msg));
+        CMPGeopackageCreateHelper.CreateGeoPackage(
+            gpkg, 
+            walMode: true, 
+            onStatus: msg => statusMessages.Add(msg));
 
-            // Assert
-            Assert.IsTrue(File.Exists(gpkg), "GeoPackage should be created");
-            
-            bool hasWalMessage = statusMessages.Any(msg => 
-                msg.Contains("Enabled WAL (Write-Ahead Logging) mode"));
-            Assert.IsTrue(hasWalMessage, "Should enable WAL mode");
+        Assert.IsTrue(File.Exists(gpkg), "GeoPackage should be created");
+        
+        bool hasWalMessage = statusMessages.Any(msg => 
+            msg.Contains("Enabled WAL (Write-Ahead Logging) mode"));
+        Assert.IsTrue(hasWalMessage, "Should enable WAL mode");
 
-            using SqliteConnection connection = new($"Data Source={gpkg}");
-            connection.Open();
-            
-            using SqliteCommand journalCommand = new("PRAGMA journal_mode", connection);
-            string? journalMode = journalCommand.ExecuteScalar()?.ToString();
-            Assert.AreEqual("wal", journalMode?.ToLower(), "Should use WAL mode");
+        using SqliteConnection connection = new($"Data Source={gpkg}");
+        connection.Open();
+        
+        using SqliteCommand journalCommand = new("PRAGMA journal_mode", connection);
+        string? journalMode = journalCommand.ExecuteScalar()?.ToString();
+        Assert.AreEqual("wal", journalMode?.ToLower(), "Should use WAL mode");
 
-            using SqliteCommand sridCommand = new(
-                "SELECT COUNT(*) FROM gpkg_spatial_ref_sys WHERE srs_id = 3006", connection);
-            int sridCount = Convert.ToInt32(sridCommand.ExecuteScalar());
-            Assert.AreEqual(1, sridCount, "Default SRID 3006 should be present");
-        }
-        finally
-        {
-            TryDeleteFile(gpkg);
-        }
+        using SqliteCommand sridCommand = new(
+            "SELECT COUNT(*) FROM gpkg_spatial_ref_sys WHERE srs_id = 3006", connection);
+        int sridCount = Convert.ToInt32(sridCommand.ExecuteScalar());
+        Assert.AreEqual(1, sridCount, "Default SRID 3006 should be present");
+        TestOutputHelper.LogOutputLocation(gpkg);
     }
 
     [TestMethod]
     public void CreateGeoPackage_WalModePerformanceTest_ShouldCreateSuccessfully()
     {
-        // Basic test to ensure WAL mode doesn't break GeoPackage creation
-        string gpkg = CreateTempGpkgPath();
+        string gpkg = TestOutputHelper.GetTestOutputPath();
         
-        try
+        System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        CMPGeopackageCreateHelper.CreateGeoPackage(gpkg, walMode: true);
+        stopwatch.Stop();
+
+        Assert.IsTrue(File.Exists(gpkg), "GeoPackage should be created with WAL mode");
+        Assert.IsTrue(stopwatch.ElapsedMilliseconds < 5000, "Creation should complete in reasonable time");
+
+        using SqliteConnection connection = new($"Data Source={gpkg}");
+        connection.Open();
+
+        string[] tables = ["gpkg_spatial_ref_sys", "gpkg_contents", "gpkg_geometry_columns"];
+        foreach (string table in tables)
         {
-            // Act
-            System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
-            CMPGeopackageCreateHelper.CreateGeoPackage(gpkg, walMode: true);
-            stopwatch.Stop();
-
-            // Assert
-            Assert.IsTrue(File.Exists(gpkg), "GeoPackage should be created with WAL mode");
-            Assert.IsTrue(stopwatch.ElapsedMilliseconds < 5000, "Creation should complete in reasonable time");
-
-            using SqliteConnection connection = new($"Data Source={gpkg}");
-            connection.Open();
-
-            string[] tables = ["gpkg_spatial_ref_sys", "gpkg_contents", "gpkg_geometry_columns"];
-            foreach (string table in tables)
-            {
-                using SqliteCommand command = new(
-                    $"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'", connection);
-                object? result = command.ExecuteScalar();
-                Assert.IsNotNull(result, $"Required table {table} should exist");
-            }
+            using SqliteCommand command = new(
+                $"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'", connection);
+            object? result = command.ExecuteScalar();
+            Assert.IsNotNull(result, $"Required table {table} should exist");
         }
-        finally
-        {
-            TryDeleteFile(gpkg);
-        }
+        TestOutputHelper.LogOutputLocation(gpkg);
     }
 
     [TestMethod]
     public void CreateGeoPackage_MethodOverloads_ShouldAllWork()
     {
-        List<(string Name, Action TestAction)> testCases =
+        List<(string Name, Func<string> GetPath, Action<string> TestAction)> testCases =
         [
-            ("Path only", () => {
-                string path = CreateTempGpkgPath();
-                try { CMPGeopackageCreateHelper.CreateGeoPackage(path); } finally { TryDeleteFile(path); }
-            }),
+            ("PathOnly", () => TestOutputHelper.GetTestOutputPath("PathOnly"), 
+                path => CMPGeopackageCreateHelper.CreateGeoPackage(path)),
             
-            ("Path + SRID", () => {
-                string path = CreateTempGpkgPath();
-                try { CMPGeopackageCreateHelper.CreateGeoPackage(path, 4326); } finally { TryDeleteFile(path); }
-            }),
+            ("PathAndSrid", () => TestOutputHelper.GetTestOutputPath("PathAndSrid"), 
+                path => CMPGeopackageCreateHelper.CreateGeoPackage(path, 4326)),
             
-            ("Path + Callback", () => {
-                string path = CreateTempGpkgPath();
-                try { CMPGeopackageCreateHelper.CreateGeoPackage(path, msg => { }); } finally { TryDeleteFile(path); }
-            }),
+            ("PathAndCallback", () => TestOutputHelper.GetTestOutputPath("PathAndCallback"), 
+                path => CMPGeopackageCreateHelper.CreateGeoPackage(path, msg => { })),
             
-            ("Path + SRID + Callback", () => {
-                string path = CreateTempGpkgPath();
-                try { CMPGeopackageCreateHelper.CreateGeoPackage(path, 4326, msg => { }); } finally { TryDeleteFile(path); }
-            }),
+            ("PathSridCallback", () => TestOutputHelper.GetTestOutputPath("PathSridCallback"), 
+                path => CMPGeopackageCreateHelper.CreateGeoPackage(path, 4326, msg => { })),
             
-            ("Path + WAL", () => {
-                string path = CreateTempGpkgPath();
-                try { CMPGeopackageCreateHelper.CreateGeoPackage(path, walMode: true); } finally { TryDeleteFile(path); }
-            }),
+            ("PathAndWal", () => TestOutputHelper.GetTestOutputPath("PathAndWal"), 
+                path => CMPGeopackageCreateHelper.CreateGeoPackage(path, walMode: true)),
             
-            ("Path + SRID + WAL + Callback", () => {
-                string path = CreateTempGpkgPath();
-                try { CMPGeopackageCreateHelper.CreateGeoPackage(path, 4326, true, msg => { }); } finally { TryDeleteFile(path); }
-            })
+            ("PathSridWalCallback", () => TestOutputHelper.GetTestOutputPath("PathSridWalCallback"), 
+                path => CMPGeopackageCreateHelper.CreateGeoPackage(path, 4326, true, msg => { }))
         ];
 
-        foreach ((string Name, Action TestAction) testCase in testCases)
+        foreach (var testCase in testCases)
         {
+            string path = testCase.GetPath();
             try
             {
-                testCase.TestAction.Invoke();
-                Assert.IsTrue(true, $"{testCase.Name} overload should work");
+                testCase.TestAction(path);
+                Assert.IsTrue(File.Exists(path), $"{testCase.Name} overload should create file");
+                TestOutputHelper.LogOutputLocation(path);
             }
             catch (Exception ex)
             {
                 Assert.Fail($"{testCase.Name} overload failed: {ex.Message}");
             }
-        }
-    }
-
-    private static void TryDeleteFile(string path)
-    {
-        try 
-        { 
-            if (File.Exists(path)) 
-            {
-                File.Delete(path);
-                
-                string walFile = path + "-wal";
-                string shmFile = path + "-shm";
-                
-                if (File.Exists(walFile)) File.Delete(walFile);
-                if (File.Exists(shmFile)) File.Delete(shmFile);
-            }
-        } 
-        catch 
-        { 
         }
     }
 }

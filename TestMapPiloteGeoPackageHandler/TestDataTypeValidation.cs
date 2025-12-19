@@ -1,31 +1,27 @@
 using NetTopologySuite.Geometries;
 using MapPiloteGeopackageHelper;
+using System.Runtime.CompilerServices;
 
 namespace TestMapPiloteGeoPackageHandler;
 
+/// <summary>
+/// Tests for data type validation.
+/// Output files are saved to TestResults/GeoPackages folder for inspection in QGIS.
+/// </summary>
 [TestClass]
 public class TestDataTypeValidation
 {
-    private readonly string _testGeoPackagePath;
-    private readonly string _layerName = "TestValidationLayer";
-    private readonly string _blobTestGeoPackagePath;
-    private readonly string _blobLayerName = "TestBlobLayer";
-    
-    public TestDataTypeValidation()
+    private static string GetTestPath(string suffix, [CallerMemberName] string testMethod = "")
     {
-        string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
-        string guid = Guid.NewGuid().ToString("N")[..8];
-        _testGeoPackagePath = Path.Combine(Path.GetTempPath(), $"TestDataValidation_{timestamp}_{guid}.gpkg");
-        _blobTestGeoPackagePath = Path.Combine(Path.GetTempPath(), $"TestBlobValidation_{timestamp}_{guid}.gpkg");
+        return TestOutputHelper.GetTestOutputPath(suffix, testMethod);
     }
 
-    [TestInitialize]
-    public void Setup()
+    private static (string mainPath, string blobPath) SetupGeoPackages([CallerMemberName] string testMethod = "")
     {
-        SafeDeleteFile(_testGeoPackagePath);
-        SafeDeleteFile(_blobTestGeoPackagePath);
+        string mainPath = TestOutputHelper.GetTestOutputPath("main", testMethod);
+        string blobPath = TestOutputHelper.GetTestOutputPath("blob", testMethod);
 
-        CMPGeopackageCreateHelper.CreateGeoPackage(_testGeoPackagePath);
+        CMPGeopackageCreateHelper.CreateGeoPackage(mainPath);
         
         Dictionary<string, string> columns = new()
         {
@@ -39,9 +35,9 @@ public class TestDataTypeValidation
             { "char_col", "CHAR" }
         };
         
-        GeopackageLayerCreateHelper.CreateGeopackageLayer(_testGeoPackagePath, _layerName, columns, "POINT");
+        GeopackageLayerCreateHelper.CreateGeopackageLayer(mainPath, "TestValidationLayer", columns, "POINT");
 
-        CMPGeopackageCreateHelper.CreateGeoPackage(_blobTestGeoPackagePath);
+        CMPGeopackageCreateHelper.CreateGeoPackage(blobPath);
         
         Dictionary<string, string> blobColumns = new()
         {
@@ -49,193 +45,167 @@ public class TestDataTypeValidation
             { "blob_col", "BLOB" }
         };
         
-        GeopackageLayerCreateHelper.CreateGeopackageLayer(_blobTestGeoPackagePath, _blobLayerName, blobColumns, "POINT");
-    }
+        GeopackageLayerCreateHelper.CreateGeopackageLayer(blobPath, "TestBlobLayer", blobColumns, "POINT");
 
-    [TestCleanup]
-    public void Cleanup()
-    {
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        GC.Collect();
-
-        SafeDeleteFile(_testGeoPackagePath);
-        SafeDeleteFile(_blobTestGeoPackagePath);
-    }
-
-    private static void SafeDeleteFile(string filePath)
-    {
-        if (!File.Exists(filePath))
-            return;
-
-        try
-        {
-            File.Delete(filePath);
-            return;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Warning: Could not delete file {filePath}. Error: {ex.Message}");
-            
-            for (int attempt = 1; attempt <= 3; attempt++)
-            {
-                try
-                {
-                    Thread.Sleep(100 * attempt);
-                    GC.Collect();
-                    GC.WaitForPendingFinalizers();
-                    
-                    File.Delete(filePath);
-                    Console.WriteLine($"Successfully deleted file {filePath} on attempt {attempt + 1}");
-                    return;
-                }
-                catch (Exception retryEx)
-                {
-                    Console.WriteLine($"Retry {attempt} failed for {filePath}: {retryEx.Message}");
-                }
-            }
-            
-            try
-            {
-                string tempPath = Path.Combine(Path.GetTempPath(), "test_cleanup_" + Path.GetRandomFileName());
-                File.Move(filePath, tempPath);
-                Console.WriteLine($"Moved locked file {filePath} to temporary location: {tempPath}");
-            }
-            catch (Exception moveEx)
-            {
-                Console.WriteLine($"Could not move file {filePath}: {moveEx.Message}. File will remain in place.");
-            }
-        }
+        return (mainPath, blobPath);
     }
 
     [TestMethod]
     public void TestBlobColumn_ShouldThrowException()
     {
+        var (_, blobPath) = SetupGeoPackages();
         Point point = new(415000, 7045000);
-        string[] blobData = new[] { "text_value", "blob_value" };
+        string[] blobData = ["text_value", "blob_value"];
 
         ArgumentException exception = Assert.ThrowsExactly<ArgumentException>(() =>
-            CGeopackageAddDataHelper.AddPointToGeoPackage(_blobTestGeoPackagePath, _blobLayerName, point, blobData));
+            CGeopackageAddDataHelper.AddPointToGeoPackage(blobPath, "TestBlobLayer", point, blobData));
         
         Assert.IsTrue(exception.Message.Contains("Column 'blob_col' is of type BLOB"));
         Assert.IsTrue(exception.Message.Contains("cannot be inserted via string array"));
         Assert.IsTrue(exception.Message.Contains("BLOB columns require special handling"));
+
+        TestOutputHelper.LogOutputLocation(blobPath);
     }
 
     [TestMethod]
     public void TestValidIntegerValues_ShouldSucceed()
     {
+        var (mainPath, _) = SetupGeoPackages();
         Point point = new(415000, 7045000);
-        string[] validIntegerData = new[] { "123", "45.67", "text", "varchar_test", "89.123", "12.34", "456", "char_test" };
+        string[] validIntegerData = ["123", "45.67", "text", "varchar_test", "89.123", "12.34", "456", "char_test"];
 
-        CGeopackageAddDataHelper.AddPointToGeoPackage(_testGeoPackagePath, _layerName, point, validIntegerData);
+        CGeopackageAddDataHelper.AddPointToGeoPackage(mainPath, "TestValidationLayer", point, validIntegerData);
+        TestOutputHelper.LogOutputLocation(mainPath);
     }
 
     [TestMethod]
     public void TestInvalidIntegerValue_ShouldThrowException()
     {
+        var (mainPath, _) = SetupGeoPackages();
         Point point = new(415000, 7045000);
-        string[] invalidIntegerData = new[] { "not_a_number", "45.67", "text", "varchar_test", "89.123", "12.34", "456", "char_test" };
+        string[] invalidIntegerData = ["not_a_number", "45.67", "text", "varchar_test", "89.123", "12.34", "456", "char_test"];
 
         ArgumentException exception = Assert.ThrowsExactly<ArgumentException>(() =>
-            CGeopackageAddDataHelper.AddPointToGeoPackage(_testGeoPackagePath, _layerName, point, invalidIntegerData));
+            CGeopackageAddDataHelper.AddPointToGeoPackage(mainPath, "TestValidationLayer", point, invalidIntegerData));
         
         Assert.IsTrue(exception.Message.Contains("Data type mismatch at index 0"));
         Assert.IsTrue(exception.Message.Contains("Column 'integer_col' expects INTEGER"));
         Assert.IsTrue(exception.Message.Contains("cannot be converted to an integer"));
+
+        TestOutputHelper.LogOutputLocation(mainPath);
     }
 
     [TestMethod]
     public void TestInvalidRealValue_ShouldThrowException()
     {
+        var (mainPath, _) = SetupGeoPackages();
         Point point = new(415000, 7045000);
-        string[] invalidRealData = new[] { "123", "not_a_number", "text", "varchar_test", "89.123", "12.34", "456", "char_test" };
+        string[] invalidRealData = ["123", "not_a_number", "text", "varchar_test", "89.123", "12.34", "456", "char_test"];
 
         ArgumentException exception = Assert.ThrowsExactly<ArgumentException>(() =>
-            CGeopackageAddDataHelper.AddPointToGeoPackage(_testGeoPackagePath, _layerName, point, invalidRealData));
+            CGeopackageAddDataHelper.AddPointToGeoPackage(mainPath, "TestValidationLayer", point, invalidRealData));
         
         Assert.IsTrue(exception.Message.Contains("Data type mismatch at index 1"));
         Assert.IsTrue(exception.Message.Contains("Column 'real_col' expects REAL/FLOAT"));
         Assert.IsTrue(exception.Message.Contains("cannot be converted to a number"));
+
+        TestOutputHelper.LogOutputLocation(mainPath);
     }
 
     [TestMethod]
     public void TestInvalidFloatValue_ShouldThrowException()
     {
+        var (mainPath, _) = SetupGeoPackages();
         Point point = new(415000, 7045000);
-        string[] invalidFloatData = new[] { "123", "45.67", "text", "varchar_test", "invalid_float", "12.34", "456", "char_test" };
+        string[] invalidFloatData = ["123", "45.67", "text", "varchar_test", "invalid_float", "12.34", "456", "char_test"];
 
         ArgumentException exception = Assert.ThrowsExactly<ArgumentException>(() =>
-            CGeopackageAddDataHelper.AddPointToGeoPackage(_testGeoPackagePath, _layerName, point, invalidFloatData));
+            CGeopackageAddDataHelper.AddPointToGeoPackage(mainPath, "TestValidationLayer", point, invalidFloatData));
         
         Assert.IsTrue(exception.Message.Contains("Data type mismatch at index 4"));
         Assert.IsTrue(exception.Message.Contains("Column 'float_col' expects REAL/FLOAT"));
+
+        TestOutputHelper.LogOutputLocation(mainPath);
     }
 
     [TestMethod]
     public void TestInvalidDoubleValue_ShouldThrowException()
     {
+        var (mainPath, _) = SetupGeoPackages();
         Point point = new(415000, 7045000);
-        string[] invalidDoubleData = new[] { "123", "45.67", "text", "varchar_test", "89.123", "invalid_double", "456", "char_test" };
+        string[] invalidDoubleData = ["123", "45.67", "text", "varchar_test", "89.123", "invalid_double", "456", "char_test"];
 
         ArgumentException exception = Assert.ThrowsExactly<ArgumentException>(() =>
-            CGeopackageAddDataHelper.AddPointToGeoPackage(_testGeoPackagePath, _layerName, point, invalidDoubleData));
+            CGeopackageAddDataHelper.AddPointToGeoPackage(mainPath, "TestValidationLayer", point, invalidDoubleData));
         
         Assert.IsTrue(exception.Message.Contains("Data type mismatch at index 5"));
         Assert.IsTrue(exception.Message.Contains("Column 'double_col' expects REAL/FLOAT"));
+
+        TestOutputHelper.LogOutputLocation(mainPath);
     }
 
     [TestMethod]
     public void TestInvalidIntColValue_ShouldThrowException()
     {
+        var (mainPath, _) = SetupGeoPackages();
         Point point = new(415000, 7045000);
-        string[] invalidIntData = new[] { "123", "45.67", "text", "varchar_test", "89.123", "12.34", "not_an_int", "char_test" };
+        string[] invalidIntData = ["123", "45.67", "text", "varchar_test", "89.123", "12.34", "not_an_int", "char_test"];
 
         ArgumentException exception = Assert.ThrowsExactly<ArgumentException>(() =>
-            CGeopackageAddDataHelper.AddPointToGeoPackage(_testGeoPackagePath, _layerName, point, invalidIntData));
+            CGeopackageAddDataHelper.AddPointToGeoPackage(mainPath, "TestValidationLayer", point, invalidIntData));
         
         Assert.IsTrue(exception.Message.Contains("Data type mismatch at index 6"));
         Assert.IsTrue(exception.Message.Contains("Column 'int_col' expects INTEGER"));
+
+        TestOutputHelper.LogOutputLocation(mainPath);
     }
 
     [TestMethod]
     public void TestTextValues_ShouldAlwaysSucceed()
     {
+        var (mainPath, _) = SetupGeoPackages();
         Point point = new(415000, 7045000);
-        string[] anyTextData = new[] { "123", "45.67", "any_text_value", "varchar_test", "89.123", "12.34", "456", "any_char_value" };
+        string[] anyTextData = ["123", "45.67", "any_text_value", "varchar_test", "89.123", "12.34", "456", "any_char_value"];
 
-        CGeopackageAddDataHelper.AddPointToGeoPackage(_testGeoPackagePath, _layerName, point, anyTextData);
+        CGeopackageAddDataHelper.AddPointToGeoPackage(mainPath, "TestValidationLayer", point, anyTextData);
+        TestOutputHelper.LogOutputLocation(mainPath);
     }
 
     [TestMethod]
     public void TestEmptyAndNullValues_ShouldSucceed()
     {
+        var (mainPath, _) = SetupGeoPackages();
         Point point = new(415000, 7045000);
-        string[] emptyData = new[] { "", "", "", "", "", "", "", "" };
+        string[] emptyData = ["", "", "", "", "", "", "", ""];
 
-        CGeopackageAddDataHelper.AddPointToGeoPackage(_testGeoPackagePath, _layerName, point, emptyData);
+        CGeopackageAddDataHelper.AddPointToGeoPackage(mainPath, "TestValidationLayer", point, emptyData);
+        TestOutputHelper.LogOutputLocation(mainPath);
     }
 
     [TestMethod]
     public void TestWrongNumberOfColumns_ShouldThrowException()
     {
+        var (mainPath, _) = SetupGeoPackages();
         Point point = new(415000, 7045000);
-        string[] tooFewData = new[] { "123", "45.67", "text" };
+        string[] tooFewData = ["123", "45.67", "text"];
 
         ArgumentException exception = Assert.ThrowsExactly<ArgumentException>(() =>
-            CGeopackageAddDataHelper.AddPointToGeoPackage(_testGeoPackagePath, _layerName, point, tooFewData));
+            CGeopackageAddDataHelper.AddPointToGeoPackage(mainPath, "TestValidationLayer", point, tooFewData));
         
         Assert.IsTrue(exception.Message.Contains("Column count mismatch"));
         Assert.IsTrue(exception.Message.Contains("Expected 8 attribute values"));
         Assert.IsTrue(exception.Message.Contains("but received 3 values"));
+
+        TestOutputHelper.LogOutputLocation(mainPath);
     }
 
     [TestMethod]
     public void TestBoundaryValues_ShouldSucceed()
     {
+        var (mainPath, _) = SetupGeoPackages();
         Point point = new(415000, 7045000);
-        string[] boundaryData = new[]
-        { 
+        string[] boundaryData =
+        [ 
             long.MaxValue.ToString(),
             double.MaxValue.ToString(),
             "boundary_text",
@@ -244,31 +214,38 @@ public class TestDataTypeValidation
             double.MinValue.ToString(),
             long.MinValue.ToString(),
             "b"
-        };
+        ];
 
-        CGeopackageAddDataHelper.AddPointToGeoPackage(_testGeoPackagePath, _layerName, point, boundaryData);
+        CGeopackageAddDataHelper.AddPointToGeoPackage(mainPath, "TestValidationLayer", point, boundaryData);
+        TestOutputHelper.LogOutputLocation(mainPath);
     }
 
     [TestMethod]
     public void TestNegativeNumbers_ShouldSucceed()
     {
+        var (mainPath, _) = SetupGeoPackages();
         Point point = new(415000, 7045000);
-        string[] negativeData = new[] { "-123", "-45.67", "text", "varchar", "-89.123", "-12.34", "-456", "char" };
+        string[] negativeData = ["-123", "-45.67", "text", "varchar", "-89.123", "-12.34", "-456", "char"];
 
-        CGeopackageAddDataHelper.AddPointToGeoPackage(_testGeoPackagePath, _layerName, point, negativeData);
+        CGeopackageAddDataHelper.AddPointToGeoPackage(mainPath, "TestValidationLayer", point, negativeData);
+        TestOutputHelper.LogOutputLocation(mainPath);
     }
 
     [TestMethod]
     public void TestScientificNotation_ShouldSucceed()
     {
+        var (mainPath, _) = SetupGeoPackages();
         Point point = new(415000, 7045000);
-        string[] scientificData = new[] { "123", "1.23E+10", "text", "varchar", "4.56E-5", "7.89E+15", "456", "char" };
+        string[] scientificData = ["123", "1.23E+10", "text", "varchar", "4.56E-5", "7.89E+15", "456", "char"];
 
-        CGeopackageAddDataHelper.AddPointToGeoPackage(_testGeoPackagePath, _layerName, point, scientificData);
+        CGeopackageAddDataHelper.AddPointToGeoPackage(mainPath, "TestValidationLayer", point, scientificData);
+        TestOutputHelper.LogOutputLocation(mainPath);
     }
 
     [TestMethod]
     public void TestUnknownColumnType_ShouldLogWarningAndProceed()
     {
+        // This test verifies that unknown column types don't cause crashes
+        // The test is currently a placeholder
     }
 }

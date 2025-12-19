@@ -13,13 +13,13 @@
     <RepositoryType>git</RepositoryType>
     <PackageIcon>MPGeoPackageHelper3.png</PackageIcon>
     <PackageTags>geopackage;sqlite;gis;geospatial;netTopologySuite;spatial;ogc;vector;features;geometry;point;polygon;linestring;sweref99;epsg;crs;async;fluent-api</PackageTags>
-    <Version>1.4.0</Version>
+    <Version>1.4.1</Version>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageReleaseNotes>v1.4.0: Security and robustness improvements - SQL injection protection, transaction rollback on failure, input validation, centralized utilities, XML documentation</PackageReleaseNotes>
+    <PackageReleaseNotes>v1.4.1: Bug fix - Layer extent now calculated from actual geometry data so QGIS "Zoom to Layer" works correctly. Added buffer around extent for better visualization.</PackageReleaseNotes>
     <PackageRequireLicenseAcceptance>False</PackageRequireLicenseAcceptance>
     <PackageLicenseFile>Licens.txt</PackageLicenseFile>
-    <FileVersion>1.4.0</FileVersion>
-    <AssemblyVersion>1.4.0</AssemblyVersion>
+    <FileVersion>1.4.1</FileVersion>
+    <AssemblyVersion>1.4.1</AssemblyVersion>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
@@ -27,21 +27,6 @@
     <PackageReference Include="Microsoft.Data.Sqlite.Core" Version="10.0.0" />
     <PackageReference Include="NetTopologySuite" Version="2.6.0" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.2" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Compile Update="Properties\Resources.Designer.cs">
-      <DesignTime>True</DesignTime>
-      <AutoGen>True</AutoGen>
-      <DependentUpon>Resources.resx</DependentUpon>
-    </Compile>
-  </ItemGroup>
-
-  <ItemGroup>
-    <EmbeddedResource Update="Properties\Resources.resx">
-      <Generator>ResXFileCodeGenerator</Generator>
-      <LastGenOutput>Resources.Designer.cs</LastGenOutput>
-    </EmbeddedResource>
   </ItemGroup>
 
   <!-- Ensure the icon is packed at the root so it matches PackageIcon -->

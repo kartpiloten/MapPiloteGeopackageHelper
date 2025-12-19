@@ -1,35 +1,24 @@
-using System.IO;
 using MapPiloteGeopackageHelper;
 
 namespace TestMapPiloteGeoPackageHandler;
 
+/// <summary>
+/// Tests for GeoPackage info retrieval.
+/// Output files are saved to TestResults/GeoPackages folder for inspection in QGIS.
+/// </summary>
 [TestClass]
 public class TestGeopackageInfo
 {
-    private string _gpkgPath = string.Empty;
-
-    [TestInitialize]
-    public void Init()
-    {
-        string ts = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss_fff");
-        string guid = Guid.NewGuid().ToString("N")[..8];
-        _gpkgPath = Path.Combine(Path.GetTempPath(), $"GpkgInfo_{ts}_{guid}.gpkg");
-    }
-
-    [TestCleanup]
-    public void Cleanup()
-    {
-        try { if (File.Exists(_gpkgPath)) File.Delete(_gpkgPath); } catch { }
-    }
-
     [TestMethod]
     public void CreateFourLayers_And_ReadGeopackageInfo_ShouldMatch()
     {
+        string gpkgPath = TestOutputHelper.GetTestOutputPath();
+
         // Arrange: create gpkg and 4 layers with different schemas and geometry types
-        CMPGeopackageCreateHelper.CreateGeoPackage(_gpkgPath);
+        CMPGeopackageCreateHelper.CreateGeoPackage(gpkgPath);
 
         GeopackageLayerCreateHelper.CreateGeopackageLayer(
-            _gpkgPath,
+            gpkgPath,
             layerName: "points_a",
             tableHeaders: new Dictionary<string, string>
             {
@@ -40,7 +29,7 @@ public class TestGeopackageInfo
             srid: 3006);
 
         GeopackageLayerCreateHelper.CreateGeopackageLayer(
-            _gpkgPath,
+            gpkgPath,
             layerName: "lines_b",
             tableHeaders: new Dictionary<string, string>
             {
@@ -50,7 +39,7 @@ public class TestGeopackageInfo
             srid: 3006);
 
         GeopackageLayerCreateHelper.CreateGeopackageLayer(
-            _gpkgPath,
+            gpkgPath,
             layerName: "polygons_c",
             tableHeaders: new Dictionary<string, string>
             {
@@ -61,7 +50,7 @@ public class TestGeopackageInfo
             srid: 3006);
 
         GeopackageLayerCreateHelper.CreateGeopackageLayer(
-            _gpkgPath,
+            gpkgPath,
             layerName: "mix_d",
             tableHeaders: new Dictionary<string, string>
             {
@@ -73,7 +62,7 @@ public class TestGeopackageInfo
             srid: 3006);
 
         // Act
-        CMPGeopackageReadDataHelper.GeopackageInfo info = CMPGeopackageReadDataHelper.GetGeopackageInfo(_gpkgPath);
+        CMPGeopackageReadDataHelper.GeopackageInfo info = CMPGeopackageReadDataHelper.GetGeopackageInfo(gpkgPath);
 
         // Assert: 4 layers present
         Assert.AreEqual(4, info.Layers.Count, "Expected exactly 4 user layers in gpkg_contents.");
@@ -110,5 +99,7 @@ public class TestGeopackageInfo
         AssertLayer("lines_b", "LINESTRING", 1);
         AssertLayer("polygons_c", "POLYGON", 2);
         AssertLayer("mix_d", "MULTIPOINT", 3);
+
+        TestOutputHelper.LogOutputLocation(gpkgPath);
     }
 }
